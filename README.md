@@ -1,6 +1,6 @@
 # k7s
 
-One namespace, everything in it, live: more than `kubectl`, less than `k9s`.
+One namespace, everything in it, live: more than `kubectl`, less than `k9s` - all linked up.
 
 k7s shows a namespace on one page that updates in place: the GitOps apps that
 deploy it, its deployments, replicasets, pods (with CPU/MEM) and secrets — and
