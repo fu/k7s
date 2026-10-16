@@ -35,6 +35,12 @@ func TestHiddenStatesLeaveTheTableButAreCounted(t *testing.T) {
 		t.Errorf("status line should say what is hidden: %q", m.statusLine())
 	}
 
+	cfg.SetHidden("pods", true)
+	if strings.Contains(m.statusLine(), "hidden)") {
+		t.Errorf("a section toggled off counts no hidden rows: %q", m.statusLine())
+	}
+	cfg.SetHidden("pods", false)
+
 	rows := m.stateRows([]resources.Column{{Title: " "}, {Title: "FILTER"}, {Title: "PODS"}})
 	if len(rows) != 2 || rows[1].Cells[0].Text != "○" || rows[1].Cells[2].Text != "2" {
 		t.Fatalf("state rows: %+v", rows)

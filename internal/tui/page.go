@@ -247,8 +247,9 @@ func (m *model) statusLine() string {
 	ready := true
 	for _, k := range m.kinds {
 		s := k.Status()
-		// Say what the hidden states keep out of view.
-		if n := m.hiddenRows(k); n > 0 {
+		// Say what the hidden states keep out of a section on the page (a
+		// section toggled off shows no rows anyway).
+		if n := m.hiddenRows(k); n > 0 && m.page.shown(k) {
 			if len(s) == 0 {
 				s = []resources.Cell{{Text: k.Name()}}
 			}
