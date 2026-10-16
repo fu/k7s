@@ -82,30 +82,44 @@ func (s *pickerScreen) update(msg tea.Msg) (tea.Cmd, bool) {
 			return s.load(), false
 		}
 	case tea.KeyMsg:
-		i := slices.IndexFunc(s.rows, func(r resources.Row) bool { return r.Key == s.cursor })
+		rows := s.all()
+		i := slices.IndexFunc(rows, func(r resources.Row) bool { return r.Key == s.cursor })
 		switch msg.String() {
 		case "esc":
 			s.closed = true
 			return nil, true
-		case "enter":
+		case "enter", " ":
 			if i < 0 {
 				return nil, false
 			}
-			cmd, opened := s.m.follow(s.p.Pick(s.cursor))
+			step := s.p.Pick(s.cursor)
+			if _, stay := step.(resources.Stay); stay {
+				return nil, false
+			}
+			cmd, opened := s.m.follow(step)
 			s.closed = !opened
 			return cmd, !opened
 		default:
-			if j := moveCursor(msg.String(), max(0, i), len(s.rows), s.page); j < len(s.rows) {
-				s.cursor = s.rows[j].Key
+			if j := moveCursor(msg.String(), max(0, i), len(rows), s.page); j < len(rows) {
+				s.cursor = rows[j].Key
 			}
 		}
 	}
 	return nil, false
 }
 
+// all are the loaded (or given) rows and the live ones.
+func (s *pickerScreen) all() []resources.Row {
+	if s.p.Live == nil {
+		return s.rows
+	}
+	return append(slices.Clip(s.rows), s.p.Live()...)
+}
+
 func (s *pickerScreen) view(width, height int) string {
-	if !slices.ContainsFunc(s.rows, func(r resources.Row) bool { return r.Key == s.cursor }) && len(s.rows) > 0 {
-		s.cursor = s.rows[0].Key
+	rows := s.all()
+	if !slices.ContainsFunc(rows, func(r resources.Row) bool { return r.Key == s.cursor }) && len(rows) > 0 {
+		s.cursor = rows[0].Key
 	}
 	title := yellow.Render(s.p.Title)
 	switch {
@@ -113,13 +127,13 @@ func (s *pickerScreen) view(width, height int) string {
 		title += dim.Render(" │ ") + red.Render("error: "+s.err.Error())
 	case !s.loaded:
 		title += dim.Render(" │ loading…")
-	case len(s.rows) == 0 && s.p.Empty != "":
+	case len(rows) == 0 && s.p.Empty != "":
 		title += dim.Render(" │ ") + amber.Render(s.p.Empty)
 	case s.p.Every > 0:
 		title += dim.Render(fmt.Sprintf(" │ refreshed %ds ago", int(time.Since(s.loadedAt).Seconds())))
 	}
 	s.page = max(1, height-4)
-	t := table{cols: s.p.Columns, rows: s.rows}
+	t := table{cols: s.p.Columns, rows: rows}
 	return clip(title, width) + "\n\n" + t.render(s.cursor, &s.offset, height-2, width)
 }
 

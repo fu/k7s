@@ -111,7 +111,7 @@ func run(ctx context.Context, o *options) error {
 	case err != nil:
 		// Run with the defaults and leave the broken file alone.
 		info.Notice = "config: " + err.Error() + " (using defaults)"
-		cfg = &config.Config{Version: config.Version, Colors: config.Defaults}
+		cfg = config.Default()
 	case cfg.ReadOnly():
 		info.Notice = "config " + o.config + " is from a newer k7s: read only"
 	}

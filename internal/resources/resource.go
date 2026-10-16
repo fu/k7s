@@ -56,6 +56,12 @@ type Labeled interface {
 	GVR() schema.GroupVersionResource
 }
 
+// Stateful is a kind whose rows are in named states (Row.State), e.g. pods:
+// running, pending, failing, completed. The user can hide rows by state.
+type Stateful interface {
+	States() []string
+}
+
 // Linker is a kind whose objects lead to others: an app deploys a
 // Deployment, a Deployment runs a pod, a pod uses a secret. Selecting a row
 // highlights every row linked to it, both ways and across kinds.

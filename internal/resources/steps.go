@@ -17,7 +17,7 @@ type Action struct {
 }
 
 // Step is what an action leads to; the tui shows it the same way for every
-// kind: a *Picker, a *Viewer, an *Exec, or a Cmd.
+// kind: a *Picker, a *Viewer, an *Exec, a Cmd, or Stay.
 type Step interface{ step() }
 
 // Picker asks to choose one row, e.g. a container or a port. When Pick
@@ -34,8 +34,14 @@ type Picker struct {
 	// every Every while the picker is open (0 = once).
 	Load  func(ctx context.Context) ([]Row, error)
 	Every time.Duration
-	Pick  func(key string) Step
+	// Live, if set, adds rows computed from what k7s already knows, fresh on
+	// every frame (after the loaded ones).
+	Live func() []Row
+	Pick func(key string) Step
 }
+
+// Stay keeps a picker open after a pick, e.g. after toggling an option.
+type Stay struct{}
 
 // Viewer shows text: streamed (logs) or fetched once (a secret).
 type Viewer struct {
@@ -67,3 +73,4 @@ func (*Picker) step() {}
 func (*Viewer) step() {}
 func (*Exec) step()   {}
 func (Cmd) step()     {}
+func (Stay) step()    {}

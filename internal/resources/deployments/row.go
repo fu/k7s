@@ -21,6 +21,21 @@ var columns = []resources.Column{
 
 func (r *Resource) Columns() []resources.Column { return columns }
 
+// States a deployment row can be in, for hiding rows.
+func (r *Resource) States() []string { return []string{"ready", "progressing", "stuck", "scaled-down"} }
+
+func (d Row) state() string {
+	switch d.Light() {
+	case resources.Good:
+		return "ready"
+	case resources.Alarm:
+		return "stuck"
+	case resources.Dim:
+		return "scaled-down"
+	}
+	return "progressing"
+}
+
 func (r *Resource) Rows() []resources.Row {
 	now := time.Now()
 	out := make([]resources.Row, len(r.order))
@@ -49,7 +64,7 @@ func (r *Resource) Rows() []resources.Row {
 				cells[col] = c
 			}
 		}
-		row := resources.Row{Key: k, Ref: d.ref(), Struck: !rs.deletedAt.IsZero()}
+		row := resources.Row{Key: k, Ref: d.ref(), State: d.state(), Struck: !rs.deletedAt.IsZero()}
 		for _, c := range columns {
 			row.Cells = append(row.Cells, cells[c.Title])
 		}

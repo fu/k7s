@@ -1,26 +1,37 @@
 // Package config is k7s' YAML file, ~/.config/k7s/config.yaml: the colors,
-// and the state k7s comes back to (hidden sections, the last namespace per
-// context). k7s writes it itself; a file from a newer k7s is only read.
+// and the state k7s comes back to (hidden sections and rows, the last
+// namespace per context). The defaults are default.yaml, compiled in.
 package config
 
 import (
 	"bytes"
+	_ "embed"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"go.yaml.in/yaml/v3"
 )
 
-// Version is the file format this k7s writes. Bump it on a breaking
-// change and teach migrate how to read the older ones.
-const Version = 1
+// Version is the file format this k7s writes. Bump it when a key is added
+// or changed (an older k7s would drop it when saving) and teach migrate how
+// to read the older ones.
+//
+//	1  version, sections, namespaces, colors
+//	2  + hide
+const Version = 2
+
+//go:embed default.yaml
+var defaultYAML []byte
 
 type Config struct {
 	Version  int      `yaml:"version"`
 	Sections Sections `yaml:"sections"`
+	// Hide lists, per kind, the row states not shown, e.g. pods: [completed].
+	Hide map[string][]string `yaml:"hide"`
 	// Namespaces is the last namespace per context, used when -n is not given.
 	Namespaces map[string]string `yaml:"namespaces,omitempty"`
 	Colors     Colors            `yaml:"colors"`
@@ -35,21 +46,27 @@ type Sections struct {
 
 // Colors are ANSI numbers ("0"–"255") or "#rrggbb".
 type Colors struct {
-	Good     string `yaml:"good"`     // running, synced, healthy
-	Busy     string `yaml:"busy"`     // on its way: pending, rolling out
-	Warn     string `yaml:"warn"`     // worth a look: restarts, high usage
-	Bad      string `yaml:"bad"`      // failing
-	Info     string `yaml:"info"`     // accents, the k7s badge, the menus' keys
-	Flash    string `yaml:"flash"`    // background of a cell that just changed
-	Selected string `yaml:"selected"` // background of the selected row
-	Linked   string `yaml:"linked"`   // background of rows linked to it
-	Menu     string `yaml:"menu"`     // background of the menus
+	Good     string `yaml:"good"`
+	Busy     string `yaml:"busy"`
+	Warn     string `yaml:"warn"`
+	Bad      string `yaml:"bad"`
+	Info     string `yaml:"info"`
+	Flash    string `yaml:"flash"`
+	Selected string `yaml:"selected"`
+	Linked   string `yaml:"linked"`
+	Menu     string `yaml:"menu"`
 }
 
-// Defaults are the built-in colors.
-var Defaults = Colors{
-	Good: "2", Busy: "214", Warn: "3", Bad: "1", Info: "6",
-	Flash: "3", Selected: "237", Linked: "23", Menu: "236",
+// Defaults are the colors of default.yaml.
+var Defaults = Default().Colors
+
+// Default returns the built-in config (default.yaml); it is not saved.
+func Default() *Config {
+	c := &Config{}
+	if err := yaml.Unmarshal(defaultYAML, c); err != nil {
+		panic("config: default.yaml: " + err.Error())
+	}
+	return c
 }
 
 // Path is where the config lives: $XDG_CONFIG_HOME/k7s/config.yaml, by
@@ -63,51 +80,57 @@ func Path() string {
 	return filepath.Join(dir, "k7s", "config.yaml")
 }
 
-// Load reads the config at path. A missing file gives the defaults (and is
-// written, so the colors can be found and edited); a missing color falls
-// back to its default.
+// Load reads the config at path. A missing file starts as default.yaml (and
+// is written, comments and all); keys missing from a file take their
+// defaults.
 func Load(path string) (*Config, error) {
-	c := &Config{path: path}
 	data, err := os.ReadFile(path)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		c.Version, c.Colors = Version, Defaults
-		return c, c.Save()
-	case err != nil:
+	if errors.Is(err, fs.ErrNotExist) {
+		if err := write(path, defaultYAML); err != nil {
+			return nil, err
+		}
+		data, err = defaultYAML, nil
+	}
+	if err != nil {
 		return nil, err
 	}
+	c := &Config{path: path}
 	if err := yaml.Unmarshal(data, c); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	if err := c.migrate(); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	c.Colors.fill(Defaults)
+	c.migrate()
+	c.fill(Default())
 	return c, nil
 }
 
 // migrate brings an older file to Version. A file without a version is
 // version 1. A newer one is read as far as this k7s understands it and
 // never written back, so its settings survive.
-func (c *Config) migrate() error {
+func (c *Config) migrate() {
 	if c.Version == 0 {
 		c.Version = 1
 	}
 	if c.Version > Version {
 		c.readOnly = true
-		return nil
+		return
 	}
-	// Future: if c.Version == 1 { …convert…; c.Version = 2 }
-	return nil
+	if c.Version == 1 {
+		c.Version = 2 // hide is new; fill gives it its defaults
+	}
 }
 
-func (cs *Colors) fill(d Colors) {
+// fill gives keys the file does not have their defaults.
+func (c *Config) fill(d *Config) {
+	if c.Hide == nil {
+		c.Hide = d.Hide
+	}
 	for _, f := range []struct {
 		v *string
 		d string
 	}{
-		{&cs.Good, d.Good}, {&cs.Busy, d.Busy}, {&cs.Warn, d.Warn}, {&cs.Bad, d.Bad}, {&cs.Info, d.Info},
-		{&cs.Flash, d.Flash}, {&cs.Selected, d.Selected}, {&cs.Linked, d.Linked}, {&cs.Menu, d.Menu},
+		{&c.Colors.Good, d.Colors.Good}, {&c.Colors.Busy, d.Colors.Busy}, {&c.Colors.Warn, d.Colors.Warn},
+		{&c.Colors.Bad, d.Colors.Bad}, {&c.Colors.Info, d.Colors.Info}, {&c.Colors.Flash, d.Colors.Flash},
+		{&c.Colors.Selected, d.Colors.Selected}, {&c.Colors.Linked, d.Colors.Linked}, {&c.Colors.Menu, d.Colors.Menu},
 	} {
 		if *f.v == "" {
 			*f.v = f.d
@@ -116,7 +139,7 @@ func (cs *Colors) fill(d Colors) {
 }
 
 // ReadOnly reports whether the file came from a newer k7s.
-func (c *Config) ReadOnly() bool { return c.readOnly }
+func (c *Config) ReadOnly() bool { return c != nil && c.readOnly }
 
 // Save writes the config (atomically: a crash leaves the old file).
 func (c *Config) Save() error {
@@ -129,39 +152,41 @@ func (c *Config) Save() error {
 	if err := enc.Encode(c); err != nil {
 		return err
 	}
-	data := b.Bytes()
-	if err := os.MkdirAll(filepath.Dir(c.path), 0o755); err != nil {
+	return write(c.path, b.Bytes())
+}
+
+func write(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := c.path + ".tmp"
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, c.path)
+	return os.Rename(tmp, path)
 }
 
 // Hidden reports whether a section is hidden.
 func (c *Config) Hidden(section string) bool {
-	for _, s := range c.Sections.Hidden {
-		if s == section {
-			return true
-		}
-	}
-	return false
+	return c != nil && slices.Contains(c.Sections.Hidden, section)
 }
 
 // SetHidden shows or hides a section.
 func (c *Config) SetHidden(section string, hidden bool) {
-	var out []string
-	for _, s := range c.Sections.Hidden {
-		if s != section {
-			out = append(out, s)
-		}
+	c.Sections.Hidden = toggle(c.Sections.Hidden, section, hidden)
+}
+
+// StateHidden reports whether rows of a kind in a state are hidden.
+func (c *Config) StateHidden(kind, state string) bool {
+	return c != nil && state != "" && slices.Contains(c.Hide[kind], state)
+}
+
+// SetStateHidden shows or hides the rows of a kind in a state.
+func (c *Config) SetStateHidden(kind, state string, hidden bool) {
+	if c.Hide == nil {
+		c.Hide = map[string][]string{}
 	}
-	if hidden {
-		out = append(out, section)
-	}
-	c.Sections.Hidden = out
+	c.Hide[kind] = toggle(c.Hide[kind], state, hidden)
 }
 
 // SetNamespace remembers the namespace last used in a context.
@@ -170,4 +195,18 @@ func (c *Config) SetNamespace(context, ns string) {
 		c.Namespaces = map[string]string{}
 	}
 	c.Namespaces[context] = ns
+}
+
+// toggle removes s from list, and adds it back when on; never nil.
+func toggle(list []string, s string, on bool) []string {
+	out := []string{}
+	for _, it := range list {
+		if it != s {
+			out = append(out, it)
+		}
+	}
+	if on {
+		out = append(out, s)
+	}
+	return out
 }

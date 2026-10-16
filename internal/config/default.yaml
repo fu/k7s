@@ -1,0 +1,32 @@
+# k7s config — the defaults, compiled into k7s.
+#
+# k7s writes this file to ~/.config/k7s/config.yaml on the first start and
+# then keeps it up to date (hidden sections and rows, last namespaces), so
+# comments do not survive there. Edit it while k7s is not running.
+
+# The file format. k7s migrates older files and never overwrites a newer one.
+version: 2
+
+# Sections toggled off with their key (g d r p s) stay off on the next start.
+sections:
+  hidden: []
+
+# Rows in these states are not shown (toggle them in the filter pane, f).
+#   pods:         running, pending, failing, completed
+#   deployments:  ready, progressing, stuck, scaled-down
+#   replicasets:  active, old (an earlier revision scaled to zero)
+hide:
+  pods: [completed]
+  replicasets: [old]
+
+# Colors: an ANSI number (0-255) or #rrggbb.
+colors:
+  good: "2"         # running, synced, healthy
+  busy: "214"       # on its way: pending, rolling out
+  warn: "3"         # worth a look: restarts, high usage
+  bad: "1"          # failing
+  info: "6"         # accents, the k7s badge, the menus' keys
+  flash: "3"        # background of a cell that just changed
+  selected: "237"   # background of the selected row
+  linked: "23"      # background of rows linked to the selected one
+  menu: "236"       # background of the menus

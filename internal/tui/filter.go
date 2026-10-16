@@ -13,8 +13,11 @@ import (
 	"github.com/fu/k7s/internal/resources"
 )
 
-// The filter is a label selector for every section. Its picker suggests the
-// selectors found on the labeled kinds of the namespace, plus "everything".
+// The filter pane has two parts:
+//   - a label selector for every section: it suggests the selectors found on
+//     the labeled kinds of the namespace, plus "everything" (enter applies);
+//   - the row states each kind shows or hides, e.g. completed pods (enter or
+//     space toggles; saved in the config for every namespace).
 
 // selectorKeys are the labels apps are commonly grouped by, most specific first.
 var selectorKeys = []string{
@@ -38,7 +41,7 @@ func (m *model) openFilter() tea.Cmd {
 		Title:   "filter │ ns " + ns,
 		Columns: cols,
 		Current: sel,
-		Hint:    "apply",
+		Hint:    "apply · toggle",
 		Load: func(ctx context.Context) ([]resources.Row, error) {
 			counts, order, err := selectors(ctx, client, ns, kinds)
 			all := []resources.Cell{current(sel == everything), {Text: "everything (no filter)", Tone: resources.Info}}
@@ -57,7 +60,16 @@ func (m *model) openFilter() tea.Cmd {
 			}
 			return rows, err
 		},
+		Live: func() []resources.Row { return m.stateRows(cols) },
 		Pick: func(s string) resources.Step {
+			if strings.HasPrefix(s, statePrefix) {
+				kind, state, _ := strings.Cut(s[len(statePrefix):], "/")
+				m.page.cfg.SetStateHidden(kind, state, !m.page.cfg.StateHidden(kind, state))
+				if err := m.page.cfg.Save(); err != nil {
+					m.Notice("config: " + err.Error())
+				}
+				return resources.Stay{}
+			}
 			if s == m.info.Selector {
 				return nil
 			}
@@ -66,6 +78,44 @@ func (m *model) openFilter() tea.Cmd {
 		},
 	}
 	return m.openScope("filter", p)
+}
+
+const statePrefix = "state:" // row keys of the state part: "state:pods/completed"
+
+// stateRows are the state part of the filter pane: one row per kind and
+// state, ● shown or ○ hidden, with how many rows are in it now (in the
+// kind's column).
+func (m *model) stateRows(cols []resources.Column) []resources.Row {
+	var out []resources.Row
+	for _, k := range m.kinds {
+		st, ok := k.(resources.Stateful)
+		if !ok {
+			continue
+		}
+		count := map[string]int{}
+		for _, r := range k.Rows() {
+			count[r.State]++
+		}
+		for _, state := range st.States() {
+			hidden := m.page.cfg.StateHidden(k.Name(), state)
+			mark := resources.Cell{Text: "●", Tone: resources.Good}
+			text := resources.Cell{Text: "show " + k.Name() + " " + state}
+			if hidden {
+				mark = resources.Cell{Text: "○", Tone: resources.Dim}
+				text = resources.Cell{Text: "hide " + k.Name() + " " + state, Tone: resources.Dim}
+			}
+			cells := []resources.Cell{mark, text}
+			for _, c := range cols[2:] {
+				var cell resources.Cell
+				if c.Title == strings.ToUpper(k.Name()) {
+					cell = resources.Cell{Text: fmt.Sprint(count[state]), Tone: resources.Dim}
+				}
+				cells = append(cells, cell)
+			}
+			out = append(out, resources.Row{Key: statePrefix + k.Name() + "/" + state, Cells: cells})
+		}
+	}
+	return out
 }
 
 // selectors suggests selectors from the labels the kinds use in ns, counting

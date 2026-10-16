@@ -137,7 +137,15 @@ The navigation bar shows the menus with their key letter in cyan:
 The **filter** pane suggests selectors from the app labels in the namespace
 (`app.kubernetes.io/instance`, `app.kubernetes.io/name`, `app`, `k8s-app`,
 `release` …) with how many deployments, replicasets, pods and secrets each
-matches, plus "everything".
+matches, plus "everything" (`enter` applies). Below them are the row
+**states** of each kind (pods: running, pending, failing, completed;
+deployments: ready, progressing, stuck, scaled-down; replicasets: active,
+old). `enter` or `space` shows ● or hides ○ a state. That's saved in the
+config and applies to every namespace. By default completed pods and old
+replicasets are hidden. The status line counts what is hidden
+(`pods 8 … (+5 hidden)`). Hidden rows stay in the change log, and links
+still pass through them. To exclude by label, use the selector syntax,
+e.g. `-l '!job-name'` (no pods created by Jobs).
 The **namespace** pane shows pods running/pending/failing and CPU/MEM per
 namespace.
 
@@ -149,42 +157,31 @@ local port when free). Pods with several containers or ports get a picker.
 ## Config
 
 `~/.config/k7s/config.yaml` (or `$XDG_CONFIG_HOME/k7s/config.yaml`, or
-`--config <file>`) keeps the colors and the state k7s comes back to. k7s
-writes it on the first start and whenever you toggle a section or switch
-namespace:
+`--config <file>`) keeps the colors and the state k7s comes back to: hidden
+sections, hidden row states, the last namespace per context (used without
+`-n`).
 
-```yaml
-version: 1              # the file format; older files are migrated
-sections:
-  hidden:               # sections toggled off stay off on the next start
-    - replicasets
-namespaces:             # the last namespace per context, used without -n
-  dev-cluster: shop
-colors:                 # ANSI 0-255 or #rrggbb
-  good: "2"             # running, synced, healthy
-  busy: "214"           # on its way: pending, rolling out
-  warn: "3"             # worth a look: restarts, high usage
-  bad: "1"              # failing
-  info: "6"             # accents, the badge, the menus' keys
-  flash: "3"            # background of a cell that just changed
-  selected: "237"       # background of the selected row
-  linked: "23"          # background of rows linked to it
-  menu: "236"           # background of the menus
-```
+The defaults are [`internal/config/default.yaml`](internal/config/default.yaml),
+compiled into k7s. Change a default there, not in Go. On the first start k7s
+writes that file, comments and all, as your config. After that k7s rewrites
+the file whenever you toggle a section or state or switch namespace, so
+comments do not survive.
 
-The file is rewritten by k7s, so comments do not survive. A missing color
-falls back to its default. A file written by a newer k7s (higher
-`version`) is used as far as understood but never overwritten.
+Keys missing from your file take their defaults. `version` is the file format:
+older files are migrated, and a file from a newer k7s is used as far as
+understood but never overwritten. The version is bumped whenever a key is
+added, because an older k7s would otherwise drop the new key when saving.
 
 ## Code layout
 
 ```
 cmd/                       CLI: k7s [-n] [-l] [--once] [--config]
-internal/config/           the YAML config: colors, hidden sections, last namespaces
+internal/config/           the YAML config: colors, hidden sections and states,
+  default.yaml             last namespaces; the defaults (compiled in)
 internal/kube/             cluster access: clients, contexts, a generic watch,
                            exec, port-forward, events, value formatting
 internal/resources/        the contract every kind implements
-  resource.go              Resource (a section), Linker/Link, Host, Change (change log)
+  resource.go              Resource (a section), Stateful, Linker/Link, Host, Change
   row.go                   Column, Row, Cell + Tone — what to show, not how
   steps.go                 what a key leads to: Picker, Viewer, Exec
   gitops/ deployments/ replicasets/ pods/ secrets/

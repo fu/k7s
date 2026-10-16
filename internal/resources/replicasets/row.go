@@ -21,6 +21,17 @@ var columns = []resources.Column{
 
 func (r *Resource) Columns() []resources.Column { return columns }
 
+// States a replicaset row can be in, for hiding rows: old is an earlier
+// revision scaled to zero.
+func (r *Resource) States() []string { return []string{"active", "old"} }
+
+func (s Row) state() string {
+	if s.Desired == 0 && s.Current == 0 {
+		return "old"
+	}
+	return "active"
+}
+
 func (r *Resource) Rows() []resources.Row {
 	now := time.Now()
 	out := make([]resources.Row, len(r.order))
@@ -50,7 +61,7 @@ func (r *Resource) Rows() []resources.Row {
 				cells[col] = c
 			}
 		}
-		row := resources.Row{Key: k, Ref: s.ref(), Struck: !rs.deletedAt.IsZero()}
+		row := resources.Row{Key: k, Ref: s.ref(), State: s.state(), Struck: !rs.deletedAt.IsZero()}
 		for _, c := range columns {
 			row.Cells = append(row.Cells, cells[c.Title])
 		}

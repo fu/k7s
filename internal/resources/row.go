@@ -18,6 +18,7 @@ type Column struct {
 type Row struct {
 	Key    string
 	Ref    Ref    // the object it shows, for following links
+	State  string // one of the kind's States, so the user can hide it
 	Cells  []Cell // one per column
 	Struck bool   // deleted, lingering for a moment
 }

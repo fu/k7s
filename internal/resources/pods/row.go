@@ -75,7 +75,7 @@ func (r *Resource) row(rs *rowState, now time.Time) resources.Row {
 		}
 	}
 
-	row := resources.Row{Key: p.Key(), Ref: p.ref(), Struck: !rs.deletedAt.IsZero()}
+	row := resources.Row{Key: p.Key(), Ref: p.ref(), State: p.state(), Struck: !rs.deletedAt.IsZero()}
 	for _, c := range columns {
 		cell, ok := cells[c.Title]
 		if !ok {
@@ -84,6 +84,21 @@ func (r *Resource) row(rs *rowState, now time.Time) resources.Row {
 		row.Cells = append(row.Cells, cell)
 	}
 	return row
+}
+
+// States a pod row can be in, for hiding rows.
+func (r *Resource) States() []string { return []string{"running", "pending", "failing", "completed"} }
+
+func (p Row) state() string {
+	switch p.Health() {
+	case Healthy:
+		return "running"
+	case Progressing:
+		return "pending"
+	case Finished:
+		return "completed"
+	}
+	return "failing"
 }
 
 // light is the traffic light for a pod: green running, amber on its way

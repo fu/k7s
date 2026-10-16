@@ -58,7 +58,12 @@ func Print(ctx context.Context, client *kube.Client, info Info, w io.Writer) err
 		if !k.Available() || (info.Config != nil && info.Config.Hidden(k.Name())) {
 			continue
 		}
-		rows := k.Rows()
+		var rows []resources.Row
+		for _, r := range k.Rows() {
+			if !info.Config.StateHidden(k.Name(), r.State) {
+				rows = append(rows, r)
+			}
+		}
 		fmt.Fprintf(w, "\n%s\n", k.Name())
 		if len(rows) == 0 {
 			fmt.Fprintf(w, "  %s\n", k.Empty())

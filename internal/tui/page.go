@@ -19,7 +19,7 @@ import (
 // which keys it offers.
 
 type page struct {
-	cfg      *config.Config // which sections are hidden
+	cfg      *config.Config // which sections and row states are hidden
 	selected string         // "<kind>/<row key>"
 	moved    bool           // the user moved the selection; until then it stays on the top row
 	offset   int            // first visible body line
@@ -49,6 +49,23 @@ func (m *model) sections() []resources.Resource {
 	return out
 }
 
+// rows are a kind's rows without those in hidden states.
+func (m *model) rows(k resources.Resource) []resources.Row {
+	all := k.Rows()
+	out := all[:0:0]
+	for _, r := range all {
+		if !m.page.cfg.StateHidden(k.Name(), r.State) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// hiddenRows counts a kind's rows in hidden states.
+func (m *model) hiddenRows(k resources.Resource) int {
+	return len(k.Rows()) - len(m.rows(k))
+}
+
 func keys(rows []resources.Row) []string {
 	out := make([]string, len(rows))
 	for i, r := range rows {
@@ -61,7 +78,7 @@ func keys(rows []resources.Row) []string {
 func (m *model) entries() []string {
 	var out []string
 	for _, k := range m.sections() {
-		for _, key := range keys(k.Rows()) {
+		for _, key := range keys(m.rows(k)) {
 			out = append(out, k.Name()+"/"+key)
 		}
 	}
@@ -72,7 +89,7 @@ func (m *model) entries() []string {
 func (m *model) selection() (resources.Resource, string) {
 	name, key, _ := strings.Cut(m.page.selected, "/")
 	for _, k := range m.kinds {
-		if k.Name() == name && slices.Contains(keys(k.Rows()), key) {
+		if k.Name() == name && slices.Contains(keys(m.rows(k)), key) {
 			return k, key
 		}
 	}
@@ -108,7 +125,7 @@ func (m *model) pageKey(msg tea.KeyMsg) tea.Cmd {
 	if isDigit(key) {
 		// Jump to row #n of the section the cursor is in.
 		if k, _ := m.selection(); k != nil {
-			ks := keys(k.Rows())
+			ks := keys(m.rows(k))
 			if n := typeNumber(&m.page.jumpBuf, &m.page.jumpAt, key); n >= 1 && n <= len(ks) {
 				m.page.selected, m.page.moved = k.Name()+"/"+ks[n-1], true
 			}
@@ -176,7 +193,15 @@ func (m *model) statusLine() string {
 	parts := []string{badge.Render("k7s"), "ctx " + cyan.Render(m.info.Context), "ns " + cyan.Render(m.info.Namespace), filter}
 	ready := true
 	for _, k := range m.kinds {
-		if s := k.Status(); len(s) > 0 {
+		s := k.Status()
+		// Say what the hidden states keep out of view.
+		if n := m.hiddenRows(k); n > 0 {
+			if len(s) == 0 {
+				s = []resources.Cell{{Text: k.Name()}}
+			}
+			s = append(s, resources.Cell{Text: fmt.Sprintf(" (+%d hidden)", n), Tone: resources.Dim})
+		}
+		if len(s) > 0 {
 			parts = append(parts, cells(s))
 		}
 		ready = ready && k.Ready()
@@ -205,7 +230,7 @@ func (m *model) pageView() string {
 	var selRef resources.Ref
 	for _, k := range m.sections() {
 		if k.Name() == selName {
-			for _, r := range k.Rows() {
+			for _, r := range m.rows(k) {
 				if r.Key == selKey {
 					selRef = r.Ref
 				}
@@ -218,13 +243,17 @@ func (m *model) pageView() string {
 	var lines []string
 	selLine := 0
 	for _, k := range m.sections() {
-		rows := k.Rows()
+		rows := m.rows(k)
 		if len(lines) > 0 {
 			lines = append(lines, "")
 		}
 		lines = append(lines, header.Render(k.Name()))
 		if len(rows) == 0 {
-			lines = append(lines, dim.Render("  "+k.Empty()))
+			empty := k.Empty()
+			if n := m.hiddenRows(k); n > 0 {
+				empty = fmt.Sprintf("all %d hidden by state (f to change)", n)
+			}
+			lines = append(lines, dim.Render("  "+empty))
 			continue
 		}
 		sel := ""
