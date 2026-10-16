@@ -45,14 +45,15 @@ func TestFilterShowsOnlyEventsAboutListedObjects(t *testing.T) {
 		{Namespace: "ns", Kind: "Pod", Name: "web-7d4-x", Reason: "Pulled"},
 		{Namespace: "ns", Kind: "ReplicaSet", Name: "web-7d4", Reason: "SuccessfulCreate"},
 		{Namespace: "ns", Kind: "Deployment", Name: "web", Reason: "ScalingReplicaSet"},
+		{Namespace: "ns", Kind: "Pod", Name: "web-6c1-old", Reason: "Killing"}, // an earlier pod of web
 		{Namespace: "ns", Kind: "Deployment", Name: "db", Reason: "ScalingReplicaSet"},
 		{Namespace: "ns", Kind: "Pod", Name: "db-0", Reason: "Pulled"},
 	} {
 		m.addEvent(eventMsg{e: e})
 	}
 	out := m.changes.view(10, 120)
-	if !strings.Contains(out, "changes (3)") || strings.Contains(out, "db") {
-		t.Errorf("want the 3 events about web:\n%s", out)
+	if !strings.Contains(out, "changes (4)") || strings.Contains(out, "db") || !strings.Contains(out, "web-6c1-old") {
+		t.Errorf("want the 4 events about web:\n%s", out)
 	}
 }
 

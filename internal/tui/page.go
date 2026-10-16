@@ -204,7 +204,7 @@ func (m *model) pageView() string {
 		if len(lines) > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, header.Render(fmt.Sprintf("%s (%d)", k.Name(), len(rows))))
+		lines = append(lines, header.Render(k.Name()))
 		if len(rows) == 0 {
 			lines = append(lines, dim.Render("  "+k.Empty()))
 			continue

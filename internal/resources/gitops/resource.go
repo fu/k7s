@@ -228,65 +228,76 @@ func (r *Resource) apply(e Event) {
 			r.log(now, resources.Added, e.App, "")
 		}
 	default:
-		old := row.app
+		old, a := row.app, e.App
 		var details []string
-		if old.Sync != e.App.Sync {
+		if old.Sync != a.Sync {
 			row.syncChanged = now
-			details = append(details, fmt.Sprintf("sync %s → %s", old.Sync, e.App.Sync))
+			details = append(details, fmt.Sprintf("sync %s → %s", old.Sync, a.Sync))
 		}
-		if old.Health != e.App.Health {
+		if old.Health != a.Health {
 			row.healthChanged = now
-			details = append(details, fmt.Sprintf("health %s → %s", old.Health, e.App.Health))
+			details = append(details, fmt.Sprintf("health %s → %s", old.Health, a.Health))
 		}
-		if old.Revision != e.App.Revision && e.App.Revision != "" {
+		if old.Revision != a.Revision && a.Revision != "" {
 			from := old.Revision
 			if from == "" {
 				from = "<none>"
 			}
-			details = append(details, fmt.Sprintf("revision %s → %s", from, e.App.Revision))
+			details = append(details, fmt.Sprintf("revision %s → %s", from, a.Revision))
 		}
-		if old.OpPhase != e.App.OpPhase && e.App.OpPhase != "" {
-			op := "sync " + strings.ToLower(e.App.OpPhase)
-			if e.App.OpPhase != "Succeeded" && e.App.OpMessage != "" {
-				op += ": " + e.App.OpMessage
+		if old.OpPhase != a.OpPhase && a.OpPhase != "" {
+			op := "sync " + strings.ToLower(a.OpPhase)
+			if a.OpPhase != "Succeeded" && a.OpMessage != "" {
+				op += ": " + a.OpMessage
 			}
 			details = append(details, op)
 		}
-		// When it turns red, say why and list every problem resource.
+		// Say what broke and what got fixed, resource by resource.
 		var items []string
-		if e.App.Overall() == Red && old.Overall() != Red {
-			details = append(details, e.App.Explain())
-			items = e.App.Problems
+		for _, p := range a.Problems {
+			if !slices.Contains(old.Problems, p) {
+				items = append(items, p)
+			}
 		}
-		row.app = e.App
+		for _, p := range old.Problems {
+			if !slices.Contains(a.Problems, p) {
+				items = append(items, "fixed: "+p)
+			}
+		}
+		if a.Overall() != Green && a.Explain() != old.Explain() {
+			details = append(details, a.Explain())
+		}
+		row.app = a
 		details = slices.DeleteFunc(details, func(s string) bool { return s == "" })
-		if len(details) > 0 {
-			r.log(now, resources.Modified, e.App, strings.Join(details, ", "), items...)
+		if len(details) > 0 || len(items) > 0 {
+			r.log(now, resources.Modified, a, strings.Join(details, ", "), items...)
 		}
 	}
 	r.resort()
 }
 
-// logInitialProblems explains every app that is not green.
+// logInitialProblems explains every app that is not green: why, and every
+// resource that is not healthy or not in sync.
 func (r *Resource) logInitialProblems() {
 	now := time.Now()
 	for _, k := range r.order {
 		if row := r.rows[k]; row.app.Overall() != Green && row.deletedAt.IsZero() {
-			r.log(now, resources.State, row.app, row.app.Explain(), row.app.Problems...)
+			a := row.app
+			why := a.Explain()
+			if why == "" {
+				why = strings.ToLower(a.Sync + ", " + a.Health)
+			}
+			r.log(now, resources.State, a, why, a.Problems...)
 		}
 	}
 }
 
 // log adds an app change; it shows while the app is responsible for the page.
+// The app's lights are on its row; the entry says what happened and why.
 func (r *Resource) log(at time.Time, kind resources.ChangeKind, a App, detail string, items ...string) {
 	key := a.Key()
 	r.host.Log(resources.Change{
-		At: at, Kind: kind, Object: a.Name, Detail: detail, Items: items,
-		State: []resources.Cell{
-			{Text: a.Sync, Tone: resources.Light(int(a.SyncLight()))},
-			{Text: "/", Tone: resources.Dim},
-			{Text: a.Health, Tone: resources.Light(int(a.HealthLight()))},
-		},
+		At: at, Kind: kind, Object: "app/" + a.Name, Detail: detail, Items: items,
 		Show: func() bool { return slices.Contains(r.responsible(), key) },
 	})
 }

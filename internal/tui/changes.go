@@ -175,8 +175,9 @@ func (m *model) addEvent(msg eventMsg) {
 	m.changes.add(c)
 }
 
-// aboutListed reports whether an event is about a listed object, or the
-// ReplicaSet of a listed Deployment.
+// aboutListed reports whether an event is about a listed object, or
+// belongs to a listed workload: its ReplicaSets, and its earlier pods that
+// are gone by now (their history is what explains the current ones).
 func (m *model) aboutListed(e kube.Event) bool {
 	for _, ref := range m.Listed() {
 		if ref.Namespace != e.Namespace {
@@ -185,7 +186,9 @@ func (m *model) aboutListed(e kube.Event) bool {
 		if ref.Kind == e.Kind && ref.Name == e.Name {
 			return true
 		}
-		if e.Kind == "ReplicaSet" && ref.Kind == "Deployment" && strings.HasPrefix(e.Name, ref.Name+"-") {
+		owned := (e.Kind == "Pod" && ref.Kind != "Pod" && ref.Kind != "Secret") ||
+			(e.Kind == "ReplicaSet" && ref.Kind == "Deployment")
+		if owned && strings.HasPrefix(e.Name, ref.Name+"-") {
 			return true
 		}
 	}
