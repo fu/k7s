@@ -104,7 +104,7 @@ func TestPageKeysAreUnique(t *testing.T) {
 	for _, s := range scopes {
 		use(s[:1], "menu "+s)
 	}
-	for _, k := range []string{"q", "a", "j", "k", "G", "l", "h", "w"} {
+	for _, k := range []string{"q", "a", "j", "k", "G", "l", "h", "w", "esc"} {
 		use(k, "page/action key")
 	}
 	for _, k := range registry() {
@@ -115,7 +115,11 @@ func TestPageKeysAreUnique(t *testing.T) {
 func TestSectionToggles(t *testing.T) {
 	m := &model{kinds: registry()}
 	s := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")}
-	secrets, pods := m.kinds[2], m.kinds[1]
+	byName := map[string]resources.Resource{}
+	for _, k := range m.kinds {
+		byName[k.Name()] = k
+	}
+	secrets, pods := byName["secrets"], byName["pods"]
 	m.pageKey(s)
 	if m.page.shown(secrets) || !m.page.shown(pods) {
 		t.Fatal("s hides only the secrets section")

@@ -3,7 +3,8 @@
 One namespace, everything in it, live: more than `kubectl`, less than `k9s`.
 
 k7s shows a namespace on one page that updates in place: the GitOps apps that
-deploy it, its pods (with CPU/MEM) and secrets — and below them a change log
+deploy it, its deployments, replicasets, pods (with CPU/MEM) and secrets — and
+below them a change log
 of everything that happens there, including what happened before you started.
 
 Built on the same libraries as kubectl (`client-go`, `cli-runtime`, `cobra`),
@@ -35,25 +36,35 @@ and everything in it is shown.
 ## The page
 
 ```
- k7s │ ctx dev │ ns shop │ filter app=web │ pods 3 ●3 ●0 ●0 │ secrets 2 │ gitops ● 1 apps │ ● watching
+ k7s │ ctx dev │ ns shop │ filter app=web │ gitops ● 1 apps │ deployments 1 ●1 ●0 ●0 │ pods 3 ●3 ●0 ●0 │ secrets 2 │ ● watching
 
-gitops (1)
+gitops
  #  SYNC  HEALTH  NAME  DEST  PARENT      SOURCE              REV      SYNCED
  1  ●     ●       web   shop  ● main-app  deploy/apps/web     f91dfdc  2h
 
-pods (3)
+deployments
+ #  NAME  READY  UP-TO-DATE  AVAILABLE  STATUS  IMAGES    AGE
+ 1  web   3/3             3          3  ●       web:1.4.2  40d
+
+replicasets
+ #  NAME             REV  DESIRED  CURRENT  READY  STATUS  AGE
+ 1  web-7d4b9c6f5      4        3        3      3  ●       3h
+ 2  web-5f6c8d9b7      3        0        0      0  ●       2d
+
+pods
  #  NAME                   READY  STATUS  RESTARTS  CPU  %CPU/R  %CPU/L  MEM  %MEM/R  %MEM/L  AGE
  1  web-7d4b9c6f5-x2k8q    1/1    ●       0         3m  1%      -       248Mi 48%    8%      3h
  …
 
-secrets (2)
+secrets
  #  NAME     TYPE    KEYS  AGE
  …
 
 ─ changes (42) ─────────────────────────────────────────────────────────────
+13:02:10 MODIFIED deployment/web  2/3  rollout web:1.4.1 → web:1.4.2, up-to-date 3 → 0
 13:02:11 EVENT    deployment/web  ScalingReplicaSet: Scaled up replica set web-7d4b9c6f5 to 3
 13:02:15 MODIFIED web-7d4b9c6f5-x2k8q  Running 1/1  status ContainerCreating → Running
- contexts  namespaces  filter │ gitops  pods  secrets   logs  shell  forward  [q/a] changes  [esc] quit
+ contexts  namespaces  filter │ gitops  deployments  replicasets  pods  secrets   logs  shell  forward  [q/a] changes  [esc] quit
 ```
 
 **Sections** (in this order; each shows the same rows wherever it appears):
@@ -64,22 +75,27 @@ secrets (2)
    Flux's inventory; without a filter, every app deploying into the
    namespace. SYNC and HEALTH lights; PARENT is the app that deploys this
    one (app of apps), colored by the worst light up that chain.
-2. **pods** — `#`, READY, a status light (green running, amber starting,
+2. **deployments** — READY, UP-TO-DATE, AVAILABLE, a status light (green
+   all ready and up to date, amber rolling out or scaling, red stuck:
+   progress deadline exceeded or replica failure) and the images.
+3. **replicasets** — one per rollout revision (REV) with desired, current
+   and ready replicas; old revisions scaled to zero are dimmed.
+4. **pods** — `#`, READY, a status light (green running, amber starting,
    red failing/terminating), RESTARTS ("x ago"), CPU, MEM and their % of the
    pod's request (`/R`) and limit (`/L`, `-` = none). CPU/MEM show ↑/↓ versus
    the previous poll, changed cells flash, new pods are highlighted, deleted
    ones stay struck through for 8s, port-forwarded pods show `⇄:<port>`.
-3. **secrets** — name, type, number of keys, age. Enter opens one: its keys
+5. **secrets** — name, type, number of keys, age. Enter opens one: its keys
    with the values masked; `r` reveals them. Values are only fetched for the
    opened secret, never kept in the list.
 
 **Links**: the selected row lights up (dark teal) everything linked to it,
-across sections. Select an app to see the pods it deploys and the secrets
-those pods use. Select a pod to see its app and its secrets. Select a
-secret to see which pods use it and which app deploys them. Pods count as
-"used by" a secret through volumes, `env`/`envFrom` and image pull secrets;
-pods belong to an app through their workload (Deployment, StatefulSet,
-CronJob/ScaledJob jobs, …).
+across sections, following app → Deployment → ReplicaSet → pods → secrets.
+Select an app to see its deployments, their replicasets, pods and the
+secrets they use. Select a pod to see its replicaset, deployment, app and
+secrets. Select a secret to see who uses it, up to the app. Secrets are
+used through volumes, `env`/`envFrom` and image pull secrets; jobs belong
+to their CronJob / KEDA ScaledJob by name.
 
 The status line has one **gitops light**: the worst of the responsible apps
 and their parents, so green pods under a broken deployment chain do not
@@ -88,6 +104,8 @@ look fine. The cyan "watching" dot breathes once per metrics refresh.
 **Change log** (`q`/`a` scroll it, line by line) — everything about what is
 shown, in time order:
 
+- deployment rollouts (image changes), scaling, readiness and why a rollout
+  is stuck; new replicaset revisions and their scaling
 - pod adds/deletes and status, ready and restart changes; container exits are
   explained (`exit OOMKilled(137) — out of memory, hit its memory limit`)
 - secrets added, deleted and updated
@@ -109,7 +127,7 @@ The navigation bar shows the menus with their key letter in cyan:
 | key | |
 |-----|---|
 | `c` / `n` / `f` | pick the **c**ontext / **n**amespace / **f**ilter; enter switches and returns |
-| `g` / `p` / `s` | show or hide the **g**itops / **p**ods / **s**ecrets section |
+| `g` / `d` / `r` / `p` / `s` | show or hide the **g**itops / **d**eployments / **r**eplicasets / **p**ods / **s**ecrets section |
 | `↑↓`, `0-9` | move; jump to row `#` of the current section |
 | `l` / `h` / `w` | on a pod: **l**ogs, s**h**ell, for**w**ard a port (again: stop) |
 | `enter` | on a pod: logs; on a secret: open it |
@@ -118,7 +136,8 @@ The navigation bar shows the menus with their key letter in cyan:
 
 The **filter** pane suggests selectors from the app labels in the namespace
 (`app.kubernetes.io/instance`, `app.kubernetes.io/name`, `app`, `k8s-app`,
-`release` …) with how many pods and secrets each matches, plus "everything".
+`release` …) with how many deployments, replicasets, pods and secrets each
+matches, plus "everything".
 The **namespace** pane shows pods running/pending/failing and CPU/MEM per
 namespace.
 
@@ -131,16 +150,18 @@ local port when free). Pods with several containers or ports get a picker.
 
 ```
 cmd/                       CLI: k7s [-n] [-l] [--once]
-internal/kube/             cluster access: clients, contexts, exec, port-forward,
-                           events, value formatting (CPU, MEM, age)
+internal/kube/             cluster access: clients, contexts, a generic watch,
+                           exec, port-forward, events, value formatting
 internal/resources/        the contract every kind implements
   resource.go              Resource (a section), Linker/Link, Host, Change (change log)
   row.go                   Column, Row, Cell + Tone — what to show, not how
   steps.go                 what a key leads to: Picker, Viewer, Exec
-  pods/  secrets/  gitops/ one folder per kind, each with
-                             resource.go  state, change log, Actions
+  gitops/ deployments/ replicasets/ pods/ secrets/
+                           one folder per kind, each with
+                             resource.go  watch, state, change log, links, Actions
                              row.go       its columns and cells
-                             + its watch and kind-specific logic
+                             + kind-specific logic (e.g. pods: logs, forward)
+  restest/                 a recording Host for testing kinds
 internal/tui/              everything drawn, the same way for every kind
   app.go                   the registry of kinds, screens, navigation bar
   page.go                  the page: sections, selection, # jump
@@ -153,9 +174,10 @@ internal/tui/              everything drawn, the same way for every kind
   once.go                  --once: the same rows, printed
 ```
 
-Adding a kind (say deployments) means a folder `internal/resources/deployments`
-with `resource.go` and `row.go` and one line in the registry in
-`internal/tui/app.go`; its logs, pickers and the like reuse the generic steps.
+Adding a kind (deployments and replicasets were added this way) means a
+folder under `internal/resources` with `resource.go` and `row.go` and one
+line in the registry in `internal/tui/app.go`; its watch uses `kube.Watch`,
+its keys reuse the generic steps.
 
 ## Build
 

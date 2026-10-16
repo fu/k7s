@@ -6,16 +6,21 @@ import (
 	"github.com/fu/k7s/internal/resources"
 )
 
-// Links: the workload runs the pod, the pod uses its secrets.
+// Links: its controller (a ReplicaSet, a Job, …) and the workload above it
+// run the pod; the pod uses its secrets.
 func (r *Resource) Links() []resources.Link {
 	var out []resources.Link
 	for _, k := range r.order {
 		p := r.rows[k].row
 		pod := p.ref()
-		if p.WorkloadKind != "" {
+		if p.OwnerKind != "" {
+			own := resources.Ref{Kind: p.OwnerKind, Namespace: p.Namespace, Name: p.OwnerName}
+			out = append(out, resources.Link{From: own, To: pod})
+			out = append(out, jobOwners(own)...)
+		}
+		if p.WorkloadKind != "" && p.WorkloadKind != p.OwnerKind {
 			wl := resources.Ref{Kind: p.WorkloadKind, Namespace: p.Namespace, Name: p.WorkloadName}
 			out = append(out, resources.Link{From: wl, To: pod})
-			out = append(out, jobOwners(wl)...)
 		}
 		for _, s := range p.Secrets {
 			out = append(out, resources.Link{From: pod, To: resources.Ref{Kind: "Secret", Namespace: p.Namespace, Name: s}})

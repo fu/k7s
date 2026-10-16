@@ -26,7 +26,7 @@ func TestSecretsUsed(t *testing.T) {
 		}}},
 		ImagePullSecrets: []corev1.LocalObjectReference{{Name: "registry"}, {Name: "tls"}},
 	}}
-	got := secretsUsed(pod)
+	got := SecretsUsed(&pod.Spec)
 	want := []string{"db", "init-env", "projected", "registry", "tls"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)

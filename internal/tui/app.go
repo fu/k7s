@@ -19,15 +19,17 @@ import (
 
 	"github.com/fu/k7s/internal/kube"
 	"github.com/fu/k7s/internal/resources"
+	"github.com/fu/k7s/internal/resources/deployments"
 	"github.com/fu/k7s/internal/resources/gitops"
 	"github.com/fu/k7s/internal/resources/pods"
+	"github.com/fu/k7s/internal/resources/replicasets"
 	"github.com/fu/k7s/internal/resources/secrets"
 )
 
 // registry lists the kinds in display order. Each name's first letter
 // toggles its section, so it must not clash with another key of the page.
 func registry() []resources.Resource {
-	return []resources.Resource{gitops.New(), pods.New(), secrets.New()}
+	return []resources.Resource{gitops.New(), deployments.New(), replicasets.New(), pods.New(), secrets.New()}
 }
 
 // Info describes what is being watched.

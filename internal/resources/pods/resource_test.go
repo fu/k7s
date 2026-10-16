@@ -1,35 +1,19 @@
 package pods
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/fu/k7s/internal/kube"
 	"github.com/fu/k7s/internal/resources"
+	"github.com/fu/k7s/internal/resources/restest"
 )
 
-// testHost records what a kind logs.
-type testHost struct{ log []resources.Change }
-
-func (h *testHost) Context() context.Context { return context.Background() }
-func (h *testHost) Client() *kube.Client     { return nil }
-func (h *testHost) Namespace() string        { return "ns" }
-func (h *testHost) Selector() string         { return "" }
-func (h *testHost) Refresh() time.Duration   { return 5 * time.Second }
-func (h *testHost) Send(tea.Msg)             {}
-func (h *testHost) Log(c resources.Change)   { h.log = append(h.log, c) }
-func (h *testHost) Notice(string)            {}
-func (h *testHost) Listed() []resources.Ref  { return nil }
-func (h *testHost) Pulse(time.Time)          {}
-
-func newTestResource() (*Resource, *testHost) {
-	h := &testHost{}
+func newTestResource() (*Resource, *restest.Host) {
+	h := &restest.Host{}
 	r := New()
 	r.host, r.rows = h, map[string]*rowState{}
 	return r, h
@@ -59,12 +43,12 @@ func TestRestartIsExplainedInChangeLog(t *testing.T) {
 	oom := &corev1.ContainerStateTerminated{Reason: "OOMKilled", ExitCode: 137, Message: "heap\nmore", FinishedAt: metav1.Now()}
 	r.apply(Event{Type: Modified, Row: FromPod(crashingPod(4, oom))})
 
-	if len(h.log) != 1 || h.log[0].Kind != resources.Modified {
-		t.Fatalf("want 1 MODIFIED change, got %+v", h.log)
+	if len(h.Changes) != 1 || h.Changes[0].Kind != resources.Modified {
+		t.Fatalf("want 1 MODIFIED change, got %+v", h.Changes)
 	}
 	for _, want := range []string{"restarts 3 → 4", "exit OOMKilled(137)", "out of memory", ": heap"} {
-		if !strings.Contains(h.log[0].Detail, want) {
-			t.Errorf("detail %q misses %q", h.log[0].Detail, want)
+		if !strings.Contains(h.Changes[0].Detail, want) {
+			t.Errorf("detail %q misses %q", h.Changes[0].Detail, want)
 		}
 	}
 	// The changed cell flashes.
@@ -82,10 +66,10 @@ func TestUnhealthyPodsAreExplainedAtStartup(t *testing.T) {
 	r.apply(Event{Type: Added, Row: FromPod(crashingPod(7, exit)), Initial: true})
 	r.logInitialProblems()
 
-	if len(h.log) != 1 || h.log[0].Kind != resources.State {
-		t.Fatalf("want one STATE line, got %+v", h.log)
+	if len(h.Changes) != 1 || h.Changes[0].Kind != resources.State {
+		t.Fatalf("want one STATE line, got %+v", h.Changes)
 	}
-	if got := h.log[0].Detail; !strings.Contains(got, "restarts 7") || !strings.Contains(got, "last exit Error(1) — application error") {
+	if got := h.Changes[0].Detail; !strings.Contains(got, "restarts 7") || !strings.Contains(got, "last exit Error(1) — application error") {
 		t.Errorf("unexpected detail %q", got)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/fu/k7s/internal/kube"
 )
@@ -40,6 +41,8 @@ type Row struct {
 	// The workload that runs the pod, e.g. Deployment "web" (via its
 	// ReplicaSet), StatefulSet "db"; empty for bare pods.
 	WorkloadKind, WorkloadName string
+	// The direct controller, e.g. its ReplicaSet "web-7d4b9c6f5".
+	OwnerKind, OwnerName string
 
 	// Secrets the pod uses: volumes, env, envFrom, image pull secrets.
 	Secrets []string
@@ -140,20 +143,21 @@ func FromPod(pod *corev1.Pod) Row {
 		}
 	}
 	r.WorkloadKind, r.WorkloadName = workload(pod)
-	r.Secrets = secretsUsed(pod)
+	r.OwnerKind, r.OwnerName = owner(pod)
+	r.Secrets = SecretsUsed(&pod.Spec)
 	return r
 }
 
-// secretsUsed lists the secrets a pod mounts, reads into its environment or
-// pulls images with, sorted.
-func secretsUsed(pod *corev1.Pod) []string {
+// SecretsUsed lists the secrets a pod (or a pod template) mounts, reads into
+// its environment or pulls images with, sorted.
+func SecretsUsed(spec *corev1.PodSpec) []string {
 	seen := map[string]bool{}
 	add := func(name string) {
 		if name != "" {
 			seen[name] = true
 		}
 	}
-	for _, v := range pod.Spec.Volumes {
+	for _, v := range spec.Volumes {
 		if v.Secret != nil {
 			add(v.Secret.SecretName)
 		}
@@ -165,7 +169,7 @@ func secretsUsed(pod *corev1.Pod) []string {
 			}
 		}
 	}
-	containers := append(append([]corev1.Container{}, pod.Spec.InitContainers...), pod.Spec.Containers...)
+	containers := append(append([]corev1.Container{}, spec.InitContainers...), spec.Containers...)
 	for _, c := range containers {
 		for _, e := range c.Env {
 			if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
@@ -178,7 +182,7 @@ func secretsUsed(pod *corev1.Pod) []string {
 			}
 		}
 	}
-	for _, s := range pod.Spec.ImagePullSecrets {
+	for _, s := range spec.ImagePullSecrets {
 		add(s.Name)
 	}
 	out := make([]string, 0, len(seen))
@@ -200,6 +204,14 @@ func workload(pod *corev1.Pod) (string, string) {
 		if h := pod.Labels["pod-template-hash"]; o.Kind == "ReplicaSet" && h != "" && strings.HasSuffix(o.Name, "-"+h) {
 			return "Deployment", strings.TrimSuffix(o.Name, "-"+h)
 		}
+		return o.Kind, o.Name
+	}
+	return "", ""
+}
+
+// owner is the pod's direct controller.
+func owner(pod *corev1.Pod) (string, string) {
+	if o := metav1.GetControllerOf(pod); o != nil {
 		return o.Kind, o.Name
 	}
 	return "", ""
