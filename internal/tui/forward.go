@@ -8,8 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"k7s/internal/kube"
-	"k7s/internal/pods"
+	"github.com/fu/k7s/internal/kube"
+	"github.com/fu/k7s/internal/pods"
 )
 
 // Port-forwarding: f on a pod forwards one of its declared ports to

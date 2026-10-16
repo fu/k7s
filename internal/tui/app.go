@@ -14,7 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
-	"k7s/internal/kube"
+	"github.com/fu/k7s/internal/kube"
 )
 
 // Info describes what is being watched.

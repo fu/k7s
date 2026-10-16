@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"k7s/internal/kube"
+	"github.com/fu/k7s/internal/kube"
 )
 
 type ctxState struct {

@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"k7s/internal/pods"
-	"k7s/internal/secrets"
+	"github.com/fu/k7s/internal/pods"
+	"github.com/fu/k7s/internal/secrets"
 )
 
 // The secrets view lists secrets live. Opening one fetches its values, which

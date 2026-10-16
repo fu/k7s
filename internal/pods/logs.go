@@ -8,7 +8,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"k7s/internal/kube"
+	"github.com/fu/k7s/internal/kube"
 )
 
 // StreamLogs follows a container's logs like "kubectl logs -f --tail=tail",

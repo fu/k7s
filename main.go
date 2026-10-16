@@ -1,6 +1,6 @@
 package main
 
-import "k7s/cmd"
+import "github.com/fu/k7s/cmd"
 
 func main() {
 	cmd.Execute()

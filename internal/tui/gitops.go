@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"k7s/internal/gitops"
-	"k7s/internal/pods"
+	"github.com/fu/k7s/internal/gitops"
+	"github.com/fu/k7s/internal/pods"
 )
 
 // The GitOps screen sits next to pods under context › namespace. GitOps is

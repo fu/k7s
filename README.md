@@ -10,6 +10,15 @@ Built on the same libraries as kubectl (`client-go`, `cli-runtime`, `cobra`),
 so `-n`, `--context`, `--kubeconfig`, `--as`, exec auth plugins (kubelogin) …
 behave exactly like in kubectl. TUI: Bubble Tea + Lip Gloss.
 
+## Install
+
+```bash
+brew install fu/tap/k7s                  # macOS / Linux
+go install github.com/fu/k7s@latest      # or with Go
+```
+
+Or download a binary from the [releases](https://github.com/fu/k7s/releases).
+
 ## Usage
 
 ```bash
@@ -115,6 +124,21 @@ internal/tui          screens and navigation only
 ```bash
 go build -o bin/k7s .
 ```
+
+## Release
+
+Push a version tag; the `release` workflow tests, builds macOS/Linux/Windows
+binaries with [GoReleaser](https://goreleaser.com), publishes a GitHub release
+and updates the Homebrew cask in `fu/homebrew-tap`:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The Homebrew step needs the repository secret `HOMEBREW_TAP_GITHUB_TOKEN` (a
+token allowed to push to `fu/homebrew-tap`); without it, it is skipped. Check
+the config locally with
+`go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean`.
 
 Behind a TLS-inspecting corporate proxy, Go must trust the proxy's root CA to
 download modules. Note that on macOS Go uses *only* `SSL_CERT_FILE` when it is

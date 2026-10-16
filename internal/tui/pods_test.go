@@ -9,7 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"k7s/internal/pods"
+	"github.com/fu/k7s/internal/pods"
 )
 
 func crashingPod(restarts int32, lastExit *corev1.ContainerStateTerminated) *corev1.Pod {

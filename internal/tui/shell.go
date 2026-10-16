@@ -11,7 +11,7 @@ import (
 	"golang.org/x/term"
 	utilexec "k8s.io/client-go/util/exec"
 
-	"k7s/internal/kube"
+	"github.com/fu/k7s/internal/kube"
 )
 
 type shellDoneMsg struct{ err error }

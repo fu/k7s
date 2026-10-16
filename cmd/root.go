@@ -18,12 +18,15 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
-	"k7s/internal/kube"
-	"k7s/internal/pods"
-	"k7s/internal/tui"
+	"github.com/fu/k7s/internal/kube"
+	"github.com/fu/k7s/internal/pods"
+	"github.com/fu/k7s/internal/tui"
 )
 
 var configFlags = genericclioptions.NewConfigFlags(true)
+
+// version is set at release build time (-ldflags "-X …/cmd.version=…").
+var version = "dev"
 
 type options struct {
 	allNamespaces bool
@@ -57,6 +60,7 @@ Examples:
   k7s po --once                # print one pod table and exit`,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
+		Version:      version,
 		RunE:         run,
 	}
 	configFlags.AddFlags(root.PersistentFlags())

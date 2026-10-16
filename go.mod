@@ -1,4 +1,4 @@
-module k7s
+module github.com/fu/k7s
 
 go 1.27.2
 

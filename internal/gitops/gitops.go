@@ -14,7 +14,7 @@ import (
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/tools/cache"
 
-	"k7s/internal/kube"
+	"github.com/fu/k7s/internal/kube"
 )
 
 // Engine is the GitOps tool found on a cluster.

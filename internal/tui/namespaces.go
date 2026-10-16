@@ -8,8 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"k7s/internal/namespaces"
-	"k7s/internal/pods"
+	"github.com/fu/k7s/internal/namespaces"
+	"github.com/fu/k7s/internal/pods"
 )
 
 type (

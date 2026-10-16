@@ -1,0 +1,59 @@
+# Release config: https://goreleaser.com — run by .github/workflows/release.yml
+# on every vX.Y.Z tag.
+version: 2
+
+project_name: k7s
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: .
+    binary: k7s
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/fu/k7s/cmd.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [README.md]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^ci:"]
+
+# Homebrew: writes Casks/k7s.rb to github.com/fu/homebrew-tap, so that
+#   brew install fu/tap/k7s
+# works. Needs the repo secret HOMEBREW_TAP_GITHUB_TOKEN (a token that can
+# push to fu/homebrew-tap); without it this step is skipped.
+homebrew_casks:
+  - name: k7s
+    repository:
+      owner: fu
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}false{{ else }}true{{ end }}'
+    homepage: https://github.com/fu/k7s
+    description: "Live kubectl views: more than kubectl, less than k9s"
+    commit_author:
+      name: Christian Fufezan
+      email: christian@fufezan.net
+    hooks:
+      post:
+        # The binaries are not notarized; let macOS run them anyway.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/k7s"]
+          end

@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"k7s/internal/pods"
+	"github.com/fu/k7s/internal/pods"
 )
 
 type purpose int
