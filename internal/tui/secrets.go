@@ -54,15 +54,25 @@ type secretsState struct {
 	errAt          time.Time
 
 	// the opened secret
-	openKey string
-	data    map[string][]byte
-	dataErr error
-	reveal  bool
-	scroll  int
+	openKey  string
+	openType string
+	back     screen // where esc returns to
+	data     map[string][]byte
+	dataErr  error
+	reveal   bool
+	scroll   int
 }
 
-// openSecrets starts watching the secrets of the current scope.
+// openSecrets shows the secrets view.
 func (m *model) openSecrets() tea.Cmd {
+	m.startSecrets()
+	m.screen, m.lastView = screenSecrets, screenSecrets
+	return nil
+}
+
+// startSecrets (re)starts watching the secrets of the current scope; the
+// secrets view and the overview both show them.
+func (m *model) startSecrets() {
 	s := &m.secrets
 	if s.cancel != nil {
 		s.cancel()
@@ -70,14 +80,13 @@ func (m *model) openSecrets() tea.Cmd {
 	gen := s.gen + 1
 	ctx, cancel := context.WithCancel(m.ctx)
 	*s = secretsState{gen: gen, cancel: cancel, rows: map[string]secrets.Row{}}
-	m.screen, m.lastView = screenSecrets, screenSecrets
 
 	ns := m.info.Namespace
 	if m.info.AllNamespaces {
 		ns = metav1.NamespaceAll
 	}
 	send := m.send
-	err := secrets.Watch(ctx, m.client, ns, secrets.Handlers{
+	err := secrets.Watch(ctx, m.client, ns, m.info.Selector, secrets.Handlers{
 		Row:    func(r secrets.Row, deleted bool) { send(secretMsg{gen, r, deleted}) },
 		Synced: func() { send(secretsSyncedMsg{gen}) },
 		Error:  func(err error) { send(secretsErrMsg{gen, err}) },
@@ -85,7 +94,6 @@ func (m *model) openSecrets() tea.Cmd {
 	if err != nil {
 		s.err, s.errAt = err, time.Now()
 	}
-	return nil
 }
 
 func (m *model) closeSecrets() {
@@ -177,21 +185,27 @@ func (m *model) secretsKey(msg tea.KeyMsg) tea.Cmd {
 	case "end", "G":
 		s.move(len(s.order))
 	case "enter":
-		row, ok := s.rows[s.selected]
-		if !ok {
-			return nil
-		}
-		s.openKey, s.data, s.dataErr, s.reveal, s.scroll = row.Key(), nil, nil, false, 0
-		m.screen = screenSecret
-		gen, client, ctx := s.gen, m.client, m.ctx
-		return func() tea.Msg {
-			ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			defer cancel()
-			data, err := secrets.Values(ctx, client, row.Namespace, row.Name)
-			return secretDataMsg{gen: gen, key: row.Key(), data: data, err: err}
+		if row, ok := s.rows[s.selected]; ok {
+			return m.openSecret(row)
 		}
 	}
 	return nil
+}
+
+// openSecret shows one secret's keys (values masked); esc returns to the
+// current screen.
+func (m *model) openSecret(row secrets.Row) tea.Cmd {
+	s := &m.secrets
+	s.openKey, s.openType, s.back = row.Key(), row.Type, m.screen
+	s.data, s.dataErr, s.reveal, s.scroll = nil, nil, false, 0
+	m.screen = screenSecret
+	gen, client, ctx := s.gen, m.client, m.ctx
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		data, err := secrets.Values(ctx, client, row.Namespace, row.Name)
+		return secretDataMsg{gen: gen, key: row.Key(), data: data, err: err}
+	}
 }
 
 func (m *model) secretKey(msg tea.KeyMsg) tea.Cmd {
@@ -199,7 +213,7 @@ func (m *model) secretKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "esc":
 		s.data, s.openKey, s.reveal = nil, "", false
-		m.screen = screenSecrets
+		m.screen = s.back
 	case "r":
 		s.reveal = !s.reveal
 	case "up", "k":
@@ -224,6 +238,9 @@ func (m *model) secretsStatusLine() string {
 		"ns " + stCyan.Render(m.nsLabel()),
 		fmt.Sprintf("secrets %d", len(s.rows)),
 	}
+	if m.info.Selector != "" {
+		parts = append(parts, m.filterLabel())
+	}
 	switch {
 	case s.err != nil && time.Since(s.errAt) < 30*time.Second:
 		parts = append(parts, stRed.Render("watch error: "+s.err.Error()))
@@ -236,6 +253,16 @@ func (m *model) secretsStatusLine() string {
 }
 
 func (m *model) secretsView() string {
+	s := &m.secrets
+	t := m.secretsTable()
+	body := t.render(s.cursor, &s.offset, m.height-3, m.width)
+	return m.secretsStatusLine() + "\n\n" + body +
+		m.footer(jumpOr(s.jumpBuf, s.jumpAt, "[enter] open  "+m.scopeHint()+"  [esc] back"))
+}
+
+// secretsTable is the secrets table in s.order; the secrets screen and the
+// overview both use it.
+func (m *model) secretsTable() table {
 	s := &m.secrets
 	t := table{
 		headers: []string{"#", "NAME", "TYPE", "KEYS", "AGE"},
@@ -261,15 +288,12 @@ func (m *model) secretsView() string {
 		}
 		t.rows = append(t.rows, cells)
 	}
-	body := t.render(s.cursor, &s.offset, m.height-3, m.width)
-	return m.secretsStatusLine() + "\n\n" + body +
-		m.footer(jumpOr(s.jumpBuf, s.jumpAt, "[enter] open  "+m.scopeHint()+"  [esc] back"))
+	return t
 }
 
 func (m *model) secretView() string {
 	s := &m.secrets
-	row := s.rows[s.openKey]
-	head := m.crumbs(m.info.Context, stYellow.Render("secret "+s.openKey), stDim.Render(row.Type))
+	head := m.crumbs(m.info.Context, stYellow.Render("secret "+s.openKey), stDim.Render(s.openType))
 
 	var lines []string
 	switch {
@@ -297,7 +321,7 @@ func (m *model) secretView() string {
 			lines = append(lines, stDim.Render("    (empty)"))
 		default:
 			for _, l := range strings.Split(strings.TrimRight(string(v), "\n"), "\n") {
-				lines = append(lines, clip("    "+l, m.width))
+				lines = append(lines, wrap(l, m.width, 4, 4)...)
 			}
 		}
 	}

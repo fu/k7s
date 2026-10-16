@@ -18,6 +18,7 @@ const (
 type containersState struct {
 	pod            pods.Row
 	purpose        purpose
+	back           screen // where esc returns to
 	cursor, offset int
 }
 
@@ -34,8 +35,7 @@ func candidates(r pods.Row, p purpose) []pods.Container {
 	return out
 }
 
-// openContainers acts on the selected pod: straight to logs/shell for a
-// single container, otherwise via the container picker.
+// openContainers acts on the pod selected on the pods screen.
 func (m *model) openContainers(p purpose) tea.Cmd {
 	rs := m.pods.selectedRow()
 	if rs == nil {
@@ -45,12 +45,18 @@ func (m *model) openContainers(p purpose) tea.Cmd {
 		m.setNotice("pod " + rs.row.Name + " is gone")
 		return nil
 	}
-	list := candidates(rs.row, p)
+	return m.openContainersFor(rs.row, p)
+}
+
+// openContainersFor goes straight to logs/shell for a single container,
+// otherwise via the container picker.
+func (m *model) openContainersFor(pod pods.Row, p purpose) tea.Cmd {
+	list := candidates(pod, p)
 	if len(list) == 0 {
 		m.setNotice("no containers to choose from")
 		return nil
 	}
-	m.containers = containersState{pod: rs.row, purpose: p}
+	m.containers = containersState{pod: pod, purpose: p, back: m.screen}
 	if len(list) == 1 {
 		return m.runOn(list[0], p)
 	}
@@ -92,7 +98,7 @@ func (m *model) containersKey(msg tea.KeyMsg) tea.Cmd {
 	list := candidates(m.currentPod(), cs.purpose)
 	switch msg.String() {
 	case "esc":
-		m.screen = screenPods
+		m.screen = cs.back
 	case "up", "k":
 		cs.cursor = clampCursor(cs.cursor, -1, len(list))
 	case "down", "j":

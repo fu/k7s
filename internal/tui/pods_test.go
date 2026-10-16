@@ -130,7 +130,7 @@ func TestMenuKeysAreUniqueFirstLetters(t *testing.T) {
 func TestResolveView(t *testing.T) {
 	for arg, want := range map[string]string{
 		"pods": "pods", "po": "pods", "Secret": "secrets", "ns": "namespaces",
-		"ctx": "contexts", "argocd": "gitops", "helmreleases": "gitops",
+		"ctx": "contexts", "argocd": "gitops", "helmreleases": "gitops", "all": "overview",
 	} {
 		if got, ok := ResolveView(arg); !ok || got != want {
 			t.Errorf("ResolveView(%q) = %q, %v; want %q", arg, got, ok, want)
@@ -145,6 +145,27 @@ func TestHintsDropTheBrackets(t *testing.T) {
 	got := hints("s[h]ell  [esc] back")
 	if strings.ContainsAny(got, "[]") || !strings.Contains(got, "h") || !strings.Contains(got, "esc") {
 		t.Errorf("hints rendered %q", got)
+	}
+}
+
+func TestWrapBreaksLongValues(t *testing.T) {
+	long := strings.Repeat("QUJDREVGR0g=", 30) // a base64 blob without spaces
+	lines := wrap(long, 60, 4, 4)
+	if len(lines) < 6 {
+		t.Fatalf("want the value spread over several lines, got %d", len(lines))
+	}
+	var joined string
+	for _, l := range lines {
+		if w := len([]rune(l)); w > 60 {
+			t.Errorf("line wider than 60: %d", w)
+		}
+		if !strings.HasPrefix(l, "    ") {
+			t.Errorf("continuation not indented: %q", l)
+		}
+		joined += strings.TrimSpace(l)
+	}
+	if joined != long {
+		t.Error("wrapping changed the value")
 	}
 }
 

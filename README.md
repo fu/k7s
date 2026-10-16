@@ -23,7 +23,9 @@ Or download a binary from the [releases](https://github.com/fu/k7s/releases).
 
 ```bash
 k7s                                # pods of the current namespace
-k7s secrets -n my-namespace        # start in another view: contexts, namespaces, pods, secrets, gitops
+k7s all -n shop                    # everything in one namespace on one page (overview)
+k7s all -n shop -l app=web         # same, for one app
+k7s secrets -n my-namespace        # start in another view: contexts, namespaces, filter, overview, pods, secrets, gitops
 k7s get pods -A -l app=web         # "get" works too; kubectl short names (po, ns, ctx …) as well
 k7s po -n my-namespace --once      # one pod table, kubectl-style (also used when piped)
 k7s --refresh 2s                   # metrics poll interval (default 5s)
@@ -58,21 +60,35 @@ Live view (pods are listed by name):
 The bottom line is the navigation bar:
 
 ```
- contexts  namespaces  pods  secrets  gitops   logs  shell  [q/a] changes  all Namespaces  [esc] quit
+ contexts  namespaces  filter  overview  pods  secrets  gitops   logs  shell  forward  [q/a] changes  all Namespaces  [esc] quit
 ```
 
 On the left are the **menus**, always available as global keys — the first
-letter of each (shown in cyan) is its key: `c`ontexts, `n`amespaces, `p`ods,
-`s`ecrets, `g`itops. The active menu is highlighted. To the right are the
-current screen's commands, again with the key letter in cyan (`l`ogs,
-s`h`ell, `f`ollow, `r`eveal …; keys that are not letters are shown in front).
+letter of each (shown in cyan) is its key: `c`ontexts, `n`amespaces,
+`f`ilter, `o`verview, `p`ods, `s`ecrets, `g`itops. The first three set the
+scope, the others are views. The active menu is highlighted. To the right are
+the current screen's commands, again with the key letter in cyan (`l`ogs,
+s`h`ell, for`w`ard, `r`eveal …; keys that are not letters are shown in front).
 
-- `c` / `n`: pick a context / namespace; enter switches right away and returns
-  to the view you were on. k7s starts in the current kubectl context and the
-  namespace from `-n` (else the context's default).
-- `N`: toggle between the selected namespace and all namespaces, anywhere.
+- `c` / `n` / `f`: pick a context / namespace / filter; enter switches right
+  away and returns to the view you were on. k7s starts in the current kubectl
+  context, the namespace from `-n` (else the context's default) and the
+  filter from `-l`.
+- The **filter** is a label selector for all views. Its pane suggests the
+  selectors found in the namespace (from `app.kubernetes.io/instance`,
+  `app.kubernetes.io/name`, `app`, `k8s-app`, `release` …) with how many pods
+  and secrets each matches, plus "everything (no filter)".
+- `N`: toggle between the selected namespace and all namespaces (not in the
+  overview, which always shows one namespace).
 - `↑↓` move, `0-9` jump to a row `#`, `q`/`a` scroll the change log.
 - `esc` goes back; on the pods screen it quits.
+
+**Overview (`o`, or `k7s all`)** stacks the views of one namespace on one
+page: the pods table, then the secrets table — exactly the rows of their own
+screens — with the pods change log underneath. The filter (`f`) narrows it to
+one app. Pod rows support logs, shell and forward; enter on a secret opens
+it. It never spans all namespaces. (`k7s get all` is refused on purpose:
+kubectl's `get all` means something else.)
 
 **Secrets (`s`)** lists the secrets live: name, type, number of keys, age.
 Enter opens one and shows its keys with the values masked; `r` reveals them
@@ -94,11 +110,11 @@ reconciling/suspended), HEALTH is the `Healthy` condition for Kustomizations
 and the release/test result for HelmReleases. Failures are explained with
 Flux's own reason and message.
 
-**Port-forwarding (`f` on a pod)** forwards a declared container port to
+**Port-forwarding (`w` on a pod)** forwards a declared container port to
 localhost — the same port number when it is free, else any free port — like
 `kubectl port-forward`. Pods with several ports get a picker. Forwarded pods
 show `⇄:<local port>` next to their name and the change log records start and
-stop; `f` again stops it. All forwards end when k7s quits.
+stop; `w` again stops it. All forwards end when k7s quits.
 
 `l` and `h` go straight to the container when a pod has only one; otherwise a
 container picker (type, state, restarts, CPU/MEM, image) comes first. Logs
@@ -110,12 +126,13 @@ and refreshes while open.
 ## Code layout
 
 ```
-cmd/                  CLI: k7s [view], k7s get [view]
+cmd/                  CLI: k7s [view], k7s all, k7s get [view]
 internal/kube         clients, contexts, exec (shell), port-forward
 internal/pods         pod rows, watch + metrics, logs, --once table
 internal/namespaces   namespace summaries
 internal/secrets      secret watch (values dropped) and on-demand values
 internal/gitops       Argo CD / Flux apps
+internal/resources    filter suggestions from app labels
 internal/tui          screens and navigation only
 ```
 

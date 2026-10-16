@@ -35,39 +35,50 @@ type forward struct {
 
 type portsState struct {
 	pod            pods.Row
+	back           screen // where the picker returns to
 	cursor, offset int
 }
 
-// toggleForward stops the selected pod's forwards, or starts one.
+// toggleForward acts on the pod selected on the pods screen.
 func (m *model) toggleForward() tea.Cmd {
 	rs := m.pods.selectedRow()
 	if rs == nil {
 		return nil
 	}
+	if !rs.deletedAt.IsZero() && len(m.forwardsOf(rs.row.Key())) == 0 {
+		m.setNotice("pod " + rs.row.Name + " is gone")
+		return nil
+	}
+	return m.toggleForwardFor(rs.row)
+}
+
+// toggleForwardFor stops a pod's forwards, or starts one.
+func (m *model) toggleForwardFor(pod pods.Row) tea.Cmd {
 	stopped := false
 	for key, f := range m.forwards {
-		if f.pod.Key() == rs.row.Key() {
+		if f.pod.Key() == pod.Key() {
 			f.cancel()
 			delete(m.forwards, key)
-			m.pods.logEvent(eventLine{at: time.Now(), kind: forwardKind, row: rs.row,
-				detail: fmt.Sprintf("stopped localhost:%d → %d", f.local, f.remote)})
+			m.logForward(pod, fmt.Sprintf("stopped localhost:%d → %d", f.local, f.remote))
 			stopped = true
 		}
 	}
 	switch {
 	case stopped:
-		return nil
-	case !rs.deletedAt.IsZero():
-		m.setNotice("pod " + rs.row.Name + " is gone")
-	case len(rs.row.Ports) == 0:
-		m.setNotice("pod " + rs.row.Name + " declares no TCP ports to forward")
-	case len(rs.row.Ports) == 1:
-		m.startForward(rs.row, rs.row.Ports[0])
+	case len(pod.Ports) == 0:
+		m.setNotice("pod " + pod.Name + " declares no TCP ports to forward")
+	case len(pod.Ports) == 1:
+		m.startForward(pod, pod.Ports[0])
 	default:
-		m.ports = portsState{pod: rs.row}
+		m.ports = portsState{pod: pod, back: m.screen}
 		m.screen = screenPorts
 	}
 	return nil
+}
+
+// logForward records a forward start/stop in the change log.
+func (m *model) logForward(pod pods.Row, detail string) {
+	m.pods.logEvent(eventLine{at: time.Now(), kind: forwardKind, row: pod, detail: detail})
 }
 
 func (m *model) startForward(pod pods.Row, p pods.Port) {
@@ -100,8 +111,7 @@ func (m *model) forwardMsg(msg tea.Msg) {
 	case fwdReadyMsg:
 		if f, ok := m.forwards[msg.key]; ok {
 			f.ready = true
-			m.pods.logEvent(eventLine{at: time.Now(), kind: forwardKind, row: f.pod,
-				detail: fmt.Sprintf("localhost:%d → %d", f.local, f.remote)})
+			m.logForward(f.pod, fmt.Sprintf("localhost:%d → %d", f.local, f.remote))
 		}
 	case fwdEndMsg:
 		f, ok := m.forwards[msg.key]
@@ -113,8 +123,7 @@ func (m *model) forwardMsg(msg tea.Msg) {
 		if msg.err != nil {
 			why = "failed: " + msg.err.Error()
 		}
-		m.pods.logEvent(eventLine{at: time.Now(), kind: forwardKind, row: f.pod,
-			detail: fmt.Sprintf("localhost:%d → %d %s", f.local, f.remote, why)})
+		m.logForward(f.pod, fmt.Sprintf("localhost:%d → %d %s", f.local, f.remote, why))
 		m.setNotice(fmt.Sprintf("forward to %s:%d %s", f.pod.Name, f.remote, why))
 	}
 }
@@ -135,7 +144,7 @@ func (m *model) portsKey(msg tea.KeyMsg) tea.Cmd {
 	ps := &m.ports
 	switch msg.String() {
 	case "esc":
-		m.screen = screenPods
+		m.screen = ps.back
 	case "up", "k":
 		ps.cursor = clampCursor(ps.cursor, -1, len(ps.pod.Ports))
 	case "down", "j":
@@ -144,7 +153,7 @@ func (m *model) portsKey(msg tea.KeyMsg) tea.Cmd {
 		if ps.cursor < len(ps.pod.Ports) {
 			m.startForward(ps.pod, ps.pod.Ports[ps.cursor])
 		}
-		m.screen = screenPods
+		m.screen = ps.back
 	}
 	return nil
 }

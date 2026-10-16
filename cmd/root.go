@@ -55,6 +55,8 @@ you switch between with their first letter.
 
 Examples:
   k7s                          # pods of the current namespace
+  k7s all -n shop              # everything in one namespace on one page
+  k7s all -n shop -l app=web   # same, for one app
   k7s secrets -n my-namespace
   k7s get pods -A -l app=web   # "get" works too, like kubectl
   k7s po --once                # print one pod table and exit`,
@@ -74,7 +76,16 @@ Examples:
 		Use:   "get [view]",
 		Short: "Same as k7s [view], for kubectl muscle memory",
 		Args:  cobra.MaximumNArgs(1),
-		RunE:  run,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// kubectl's "get all" means a fixed list of built-in kinds;
+			// ours is different, so it only exists as "k7s all".
+			if len(args) == 1 {
+				if v, _ := tui.ResolveView(args[0]); v == "overview" {
+					return fmt.Errorf(`use "k7s all -n <namespace> [-l <selector>]" for the overview of one app`)
+				}
+			}
+			return run(cmd, args)
+		},
 	})
 	return root
 }
@@ -105,6 +116,9 @@ func runView(ctx context.Context, o *options, arg string) error {
 		} else {
 			notice = fmt.Sprintf("%q is not a k7s view (yet), showing pods. Views: %s", arg, strings.Join(tui.ViewNames(), ", "))
 		}
+	}
+	if view == "overview" && o.allNamespaces {
+		return fmt.Errorf("the overview shows one namespace: use -n <namespace> instead of -A")
 	}
 
 	client, err := kube.New(configFlags)

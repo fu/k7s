@@ -278,7 +278,7 @@ func (m *model) podsKey(msg tea.KeyMsg) tea.Cmd {
 		return m.openContainers(forLogs)
 	case "h":
 		return m.openContainers(forShell)
-	case "f":
+	case "w":
 		return m.toggleForward()
 	}
 	return nil
@@ -473,16 +473,15 @@ func (m *model) podsLayout() podsLayout {
 	return l
 }
 
-func (m *model) podsView() string {
+// podLines renders the pod table: its header and one line per pod (in
+// order), the one with key selected highlighted. The pods screen and the
+// overview both use it.
+func (m *model) podLines(selected string) (string, []string) {
 	p := &m.pods
-	l := m.podsLayout()
-	p.offset = scrollOffset(p.cursor, p.offset, l.tableRows, len(p.order))
-
-	visible := p.order[p.offset:min(len(p.order), p.offset+l.tableRows)]
 	now := time.Now()
-	cells := make([][numCols]cell, len(visible))
-	for i, k := range visible {
-		cells[i] = m.rowCells(p.rows[k], p.offset+i+1, now)
+	cells := make([][numCols]cell, len(p.order))
+	for i, k := range p.order {
+		cells[i] = m.rowCells(p.rows[k], i+1, now)
 	}
 	cols, widths := m.fitColumns(cells)
 	colWidths := make([]int, len(cols))
@@ -497,21 +496,31 @@ func (m *model) podsView() string {
 		}
 		return out
 	}
-
-	var b strings.Builder
-	b.WriteString(m.statusLine())
-	b.WriteString("\n\n")
-
 	var hdr [numCols]cell
 	for c := range hdr {
 		hdr[c] = cell{text: colTitles[c], style: stHeader}
 	}
-	b.WriteString(renderCells(pick(hdr), colWidths, right, false, m.width))
-	b.WriteByte('\n')
+	lines := make([]string, len(cells))
+	for i := range cells {
+		lines[i] = renderCells(pick(cells[i]), colWidths, right, p.order[i] == selected, m.width)
+	}
+	return renderCells(pick(hdr), colWidths, right, false, m.width), lines
+}
 
+func (m *model) podsView() string {
+	p := &m.pods
+	l := m.podsLayout()
+	p.offset = scrollOffset(p.cursor, p.offset, l.tableRows, len(p.order))
+	header, lines := m.podLines(p.selected)
+
+	var b strings.Builder
+	b.WriteString(m.statusLine())
+	b.WriteString("\n\n")
+	b.WriteString(header)
+	b.WriteByte('\n')
 	for i := 0; i < l.tableRows; i++ {
-		if i < len(visible) {
-			b.WriteString(renderCells(pick(cells[i]), colWidths, right, visible[i] == p.selected, m.width))
+		if idx := p.offset + i; idx < len(lines) {
+			b.WriteString(lines[idx])
 		} else if i == 0 {
 			b.WriteString(stDim.Render(m.emptyMessage()))
 		}
@@ -519,7 +528,7 @@ func (m *model) podsView() string {
 	}
 
 	b.WriteString(m.eventsView(l.eventLines))
-	b.WriteString(m.footer(jumpOr(p.jumpBuf, p.jumpAt, "[l]ogs  s[h]ell  [f]orward  [q/a] changes  "+m.scopeHint()+"  [esc] quit")))
+	b.WriteString(m.footer(jumpOr(p.jumpBuf, p.jumpAt, "[l]ogs  s[h]ell  for[w]ard  [q/a] changes  "+m.scopeHint()+"  [esc] quit")))
 	return b.String()
 }
 
@@ -656,7 +665,7 @@ func (m *model) statusLine() string {
 		"ns " + stCyan.Render(m.nsLabel()),
 	}
 	if m.info.Selector != "" {
-		parts = append(parts, "-l "+stCyan.Render(m.info.Selector))
+		parts = append(parts, m.filterLabel())
 	}
 	parts = append(parts, fmt.Sprintf("pods %d %s %s %s", len(p.rows),
 		stGreen.Render(fmt.Sprintf("●%d", healthy)),
@@ -726,28 +735,13 @@ const changeIndent = 9
 // wrapChange soft-wraps one change entry. Its first line starts at the left
 // edge; wrapped parts and extra lines ("\n") are indented under the text.
 func wrapChange(s string, width int) []string {
-	indent := strings.Repeat(" ", changeIndent)
 	var out []string
 	for i, part := range strings.Split(s, "\n") {
-		avail := width
-		if i > 0 {
-			avail = width - changeIndent
+		first := changeIndent
+		if i == 0 {
+			first = 0
 		}
-		var wrapped []string
-		switch {
-		case width <= changeIndent+10:
-			wrapped = []string{clip(part, width)}
-		case lipgloss.Width(part) <= avail:
-			wrapped = []string{part}
-		default:
-			wrapped = strings.Split(lipgloss.NewStyle().Width(width-changeIndent).Render(part), "\n")
-		}
-		for j, w := range wrapped {
-			if (i > 0 || j > 0) && width > changeIndent+10 {
-				w = indent + w
-			}
-			out = append(out, w)
-		}
+		out = append(out, wrap(part, width, first, changeIndent)...)
 	}
 	return out
 }

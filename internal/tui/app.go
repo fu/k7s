@@ -44,6 +44,7 @@ var viewAliases = map[string]string{
 	"secret":    "secrets",
 	"namespace": "namespaces", "ns": "namespaces",
 	"context": "contexts", "ctx": "contexts",
+	"all":  "overview",
 	"argo": "gitops", "argocd": "gitops", "flux": "gitops",
 	"application": "gitops", "applications": "gitops", "app": "gitops",
 	"kustomization": "gitops", "kustomizations": "gitops", "helmrelease": "gitops", "helmreleases": "gitops",
@@ -75,6 +76,8 @@ const (
 	screenSecrets
 	screenSecret // one secret's keys
 	screenPorts  // pick a port to forward
+	screenOverview
+	screenFilter // pick the label selector (a scope, like namespace)
 )
 
 // menus are the top-level views, always shown in the navigation bar. The
@@ -85,6 +88,8 @@ var menus = []struct {
 }{
 	{"contexts", screenContexts},
 	{"namespaces", screenNamespaces},
+	{"filter", screenFilter},
+	{"overview", screenOverview},
 	{"pods", screenPods},
 	{"secrets", screenSecrets},
 	{"gitops", screenGitOps},
@@ -101,7 +106,7 @@ type model struct {
 	info     Info
 
 	screen        screen
-	lastView      screen // pods, gitops or secrets: where n/c return after a switch
+	lastView      screen // the last menu view: where n/c return after a switch
 	width, height int
 	notice        string
 	noticeAt      time.Time
@@ -114,6 +119,8 @@ type model struct {
 	gitops     gitopsState
 	secrets    secretsState
 	ports      portsState
+	overview   overviewState
+	filter     filterState
 	forwards   map[string]*forward // active port-forwards by pod/port
 }
 
@@ -135,6 +142,8 @@ func Run(ctx context.Context, flags *genericclioptions.ConfigFlags, client *kube
 		m.startCmd = m.openNamespaces()
 	case "contexts":
 		m.startCmd = m.openContexts()
+	case "overview":
+		m.startCmd = m.openOverview()
 	}
 	if info.Notice != "" {
 		m.setNotice(info.Notice)
@@ -188,6 +197,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.secretKey(msg)
 		case screenPorts:
 			return m, m.portsKey(msg)
+		case screenOverview:
+			return m, m.overviewKey(msg)
+		case screenFilter:
+			return m, m.filterKey(msg)
 		default:
 			return m, m.podsKey(msg)
 		}
@@ -215,6 +228,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.secretsMsg(msg)
 	case fwdReadyMsg, fwdEndMsg:
 		m.forwardMsg(msg)
+	case selCandidatesMsg:
+		m.filterMsg(msg)
 	}
 	return m, nil
 }
@@ -245,7 +260,21 @@ func (m *model) globalKey(key string) (tea.Cmd, bool) {
 			m.leave()
 			return m.openSecrets(), true
 		}
+	case "o":
+		if m.screen != screenOverview {
+			m.leave()
+			return m.openOverview(), true
+		}
+	case "f":
+		if m.screen != screenFilter {
+			m.leave()
+			return m.openFilter(), true
+		}
 	case "N":
+		if m.lastView == screenOverview && !m.info.AllNamespaces {
+			m.setNotice("the overview shows one namespace; N works in the other views")
+			return nil, true
+		}
 		m.info.AllNamespaces = !m.info.AllNamespaces
 		if m.info.AllNamespaces {
 			m.setNotice("all namespaces")
@@ -273,14 +302,25 @@ func (m *model) leave() {
 		m.closeSecrets()
 	case screenNamespaces:
 		m.namespaces.gen++ // stops its refresh
+	case screenFilter:
+		m.filter.gen++
+	}
+	// The overview keeps watching while its logs/secret/pickers are open.
+	if m.lastView == screenOverview {
+		m.closeOverview()
 	}
 }
 
 // scopeChanged restarts the watches after the context or namespace changed.
 func (m *model) scopeChanged() tea.Cmd {
 	m.startPods()
-	if m.screen == screenSecrets || m.screen == screenSecret {
+	switch m.screen {
+	case screenSecrets, screenSecret:
 		return m.openSecrets()
+	case screenOverview:
+		return m.openOverview()
+	case screenFilter:
+		return m.openFilter()
 	}
 	return nil // gitops is cluster-wide: the namespace does not matter
 }
@@ -292,6 +332,8 @@ func (m *model) returnToView() tea.Cmd {
 		return m.openGitOps()
 	case screenSecrets:
 		return m.openSecrets()
+	case screenOverview:
+		return m.openOverview()
 	}
 	m.screen = screenPods
 	return nil
@@ -318,6 +360,10 @@ func (m *model) View() string {
 		return m.secretView()
 	case screenPorts:
 		return m.portsView()
+	case screenOverview:
+		return m.overviewView()
+	case screenFilter:
+		return m.filterView()
 	}
 	return m.podsView()
 }
@@ -330,12 +376,12 @@ func (m *model) setNotice(s string) {
 // (the active one highlighted), then this screen's commands — or a recent
 // notice such as an error.
 func (m *model) footer(sub string) string {
+	// Sub screens (logs, pickers, an opened secret) belong to the menu view
+	// they were opened from.
 	active := m.screen
 	switch active {
-	case screenContainers, screenLogs, screenPorts:
-		active = screenPods
-	case screenSecret:
-		active = screenSecrets
+	case screenContainers, screenLogs, screenPorts, screenSecret:
+		active = m.lastView
 	}
 	// Each menu is its name with the key letter (always the first) in cyan.
 	var b strings.Builder
@@ -451,6 +497,24 @@ type table struct {
 
 // render writes the header plus exactly height-1 row lines.
 func (t table) render(cursor int, offset *int, height, width int) string {
+	header, lines := t.lines(cursor, width)
+	var b strings.Builder
+	b.WriteString(header)
+	b.WriteByte('\n')
+	rows := max(1, height-1)
+	*offset = scrollOffset(cursor, *offset, rows, len(lines))
+	for i := 0; i < rows; i++ {
+		if idx := *offset + i; idx < len(lines) {
+			b.WriteString(lines[idx])
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// lines renders the header and every row (row cursor highlighted). Views
+// share it so the overview can stack the very same rows.
+func (t table) lines(cursor, width int) (string, []string) {
 	widths := make([]int, len(t.headers))
 	for i, h := range t.headers {
 		widths[i] = lipgloss.Width(h)
@@ -468,23 +532,15 @@ func (t table) render(cursor int, offset *int, height, width int) string {
 		widths[t.flex] = max(8, widths[t.flex]-over)
 	}
 
-	var b strings.Builder
 	hdr := make([]cell, len(t.headers))
 	for i, h := range t.headers {
 		hdr[i] = cell{text: h, style: stHeader}
 	}
-	b.WriteString(renderCells(hdr, widths, t.right, false, width))
-	b.WriteByte('\n')
-
-	rows := max(1, height-1)
-	*offset = scrollOffset(cursor, *offset, rows, len(t.rows))
-	for i := 0; i < rows; i++ {
-		if idx := *offset + i; idx < len(t.rows) {
-			b.WriteString(renderCells(t.rows[idx], widths, t.right, idx == cursor, width))
-		}
-		b.WriteByte('\n')
+	lines := make([]string, len(t.rows))
+	for i, r := range t.rows {
+		lines[i] = renderCells(r, widths, t.right, i == cursor, width)
 	}
-	return b.String()
+	return renderCells(hdr, widths, t.right, false, width), lines
 }
 
 func scrollOffset(cursor, offset, rows, n int) int {
@@ -537,6 +593,30 @@ func truncateMiddle(s string, w int) string {
 	tail := (w - 1) / 2
 	head := w - 1 - tail
 	return string(r[:head]) + "…" + string(r[len(r)-tail:])
+}
+
+// wrap soft-wraps a (possibly styled) line to width, breaking long words
+// too. The first line is indented by first spaces, continuations by rest.
+// Every long text (logs, change log, secret values) wraps through here.
+func wrap(s string, width, first, rest int) []string {
+	avail := width - max(first, rest)
+	if avail < 10 {
+		return []string{clip(strings.Repeat(" ", first)+s, width)}
+	}
+	var parts []string
+	if lipgloss.Width(s) <= avail {
+		parts = []string{s}
+	} else {
+		parts = strings.Split(lipgloss.NewStyle().Width(avail).Render(s), "\n")
+	}
+	for i := range parts {
+		indent := rest
+		if i == 0 {
+			indent = first
+		}
+		parts[i] = strings.Repeat(" ", indent) + strings.TrimRight(parts[i], " ")
+	}
+	return parts
 }
 
 // clip cuts a styled line to w cells without breaking ANSI sequences.

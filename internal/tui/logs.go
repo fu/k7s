@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/fu/k7s/internal/pods"
 )
@@ -117,12 +116,7 @@ func (l *logsState) scroll(delta int) {
 }
 
 // wrapLine soft-wraps one log line to the terminal width.
-func wrapLine(s string, w int) []string {
-	if lipgloss.Width(s) <= w {
-		return []string{s}
-	}
-	return strings.Split(lipgloss.NewStyle().Width(w).Render(s), "\n")
-}
+func wrapLine(s string, w int) []string { return wrap(s, w, 0, 0) }
 
 func (m *model) logsView() string {
 	l := &m.logs

@@ -32,10 +32,11 @@ type Handlers struct {
 	Error  func(error)
 }
 
-// Watch watches the secrets of ns ("" = all namespaces). It returns
-// immediately and stops when ctx is done.
-func Watch(ctx context.Context, c *kube.Client, ns string, h Handlers) error {
-	factory := informers.NewSharedInformerFactoryWithOptions(c.Kube, 0, informers.WithNamespace(ns))
+// Watch watches the secrets of ns ("" = all namespaces) matching selector.
+// It returns immediately and stops when ctx is done.
+func Watch(ctx context.Context, c *kube.Client, ns, selector string, h Handlers) error {
+	factory := informers.NewSharedInformerFactoryWithOptions(c.Kube, 0, informers.WithNamespace(ns),
+		informers.WithTweakListOptions(func(o *metav1.ListOptions) { o.LabelSelector = selector }))
 	inf := factory.Core().V1().Secrets().Informer()
 	// Drop the values as they arrive: the list only needs the key names.
 	if err := inf.SetTransform(func(obj any) (any, error) {
@@ -57,7 +58,7 @@ func Watch(ctx context.Context, c *kube.Client, ns string, h Handlers) error {
 			obj = t.Obj
 		}
 		if s, ok := obj.(*corev1.Secret); ok {
-			h.Row(Row{Namespace: s.Namespace, Name: s.Name, Type: shortType(string(s.Type)),
+			h.Row(Row{Namespace: s.Namespace, Name: s.Name, Type: ShortType(string(s.Type)),
 				Keys: len(s.Data), Created: s.CreationTimestamp.Time}, deleted)
 		}
 	}
@@ -87,7 +88,8 @@ func Values(ctx context.Context, c *kube.Client, ns, name string) (map[string][]
 	return s.Data, nil
 }
 
-func shortType(t string) string {
+// ShortType shortens a secret type for display, e.g. "kubernetes.io/tls" → "tls".
+func ShortType(t string) string {
 	switch t {
 	case "kubernetes.io/tls":
 		return "tls"

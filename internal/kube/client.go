@@ -7,6 +7,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 )
@@ -15,7 +16,8 @@ import (
 type Client struct {
 	Config    *rest.Config
 	Kube      kubernetes.Interface
-	Dynamic   dynamic.Interface // for CRDs such as Argo CD / Flux objects
+	Dynamic   dynamic.Interface  // for CRDs such as Argo CD / Flux objects
+	Meta      metadata.Interface // labels/names only, e.g. for selector suggestions
 	Metrics   metricsclient.Interface
 	Namespace string
 	Context   string
@@ -56,7 +58,11 @@ func New(flags *genericclioptions.ConfigFlags) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{Config: cfg, Kube: kc, Dynamic: dc, Metrics: mc, Namespace: ns, Context: ctxName, Server: cfg.Host}, nil
+	meta, err := metadata.NewForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{Config: cfg, Kube: kc, Dynamic: dc, Meta: meta, Metrics: mc, Namespace: ns, Context: ctxName, Server: cfg.Host}, nil
 }
 
 // ForContext returns a client for another context of the same kubeconfig,
