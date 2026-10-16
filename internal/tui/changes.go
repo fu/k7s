@@ -96,10 +96,7 @@ func changeLine(c resources.Change) string {
 	default:
 		k = yellow.Render(k)
 	}
-	tag := c.Tag
-	if tag == "" {
-		tag = "  "
-	}
+	tag := fmt.Sprintf("%-3s", c.Tag)
 	s := dim.Render(c.At.Format("15:04:05")) + " " + cyan.Render(tag) + " " + k + " " + c.Object
 	if len(c.State) > 0 {
 		s += "  " + cells(c.State)
@@ -118,7 +115,7 @@ func changeLine(c resources.Change) string {
 }
 
 // changeIndent lines wrapped continuation lines up after time and tag.
-const changeIndent = 12
+const changeIndent = 13
 
 // wrapChange soft-wraps one entry. Its first line starts at the left edge;
 // wrapped parts and extra lines are indented under the text.

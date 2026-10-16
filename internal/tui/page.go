@@ -133,7 +133,7 @@ func (m *model) pageKey(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 	for _, k := range m.kinds {
-		if key == k.Name()[:1] {
+		if key == toggleKey(k) {
 			m.page.toggle(k)
 			if err := m.page.cfg.Save(); err != nil {
 				m.Notice("config: " + err.Error())
@@ -270,7 +270,7 @@ func (m *model) pageView() string {
 	if len(lines) == 0 {
 		var letters []string
 		for _, k := range m.kinds {
-			letters = append(letters, k.Name()[:1])
+			letters = append(letters, toggleKey(k))
 		}
 		lines = append(lines, dim.Render("  all sections hidden: press "+strings.Join(letters, ", ")+" to show them"))
 	}

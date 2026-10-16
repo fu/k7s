@@ -23,6 +23,8 @@ import (
 	"github.com/fu/k7s/internal/resources/deployments"
 	"github.com/fu/k7s/internal/resources/gitops"
 	"github.com/fu/k7s/internal/resources/pods"
+	"github.com/fu/k7s/internal/resources/pvcs"
+	"github.com/fu/k7s/internal/resources/pvs"
 	"github.com/fu/k7s/internal/resources/replicasets"
 	"github.com/fu/k7s/internal/resources/secrets"
 )
@@ -30,7 +32,9 @@ import (
 // registry lists the kinds in display order. Each name's first letter
 // toggles its section, so it must not clash with another key of the page.
 func registry() []resources.Resource {
-	return []resources.Resource{gitops.New(), deployments.New(), replicasets.New(), pods.New(), secrets.New()}
+	return []resources.Resource{
+		gitops.New(), deployments.New(), replicasets.New(), pods.New(), pvcs.New(), pvs.New(), secrets.New(),
+	}
 }
 
 // Info describes what is being watched.
@@ -293,17 +297,27 @@ func (m *model) Listed() []resources.Ref {
 // scopes are the menus that change what is shown: each opens a picker.
 var scopes = []string{"contexts", "namespaces", "filter"}
 
+// toggleKey is the key that shows or hides a kind's section: the first
+// letter of its name, unless it names another one.
+func toggleKey(k resources.Resource) string {
+	if kk, ok := k.(resources.Keyed); ok {
+		return kk.Key()
+	}
+	return k.Name()[:1]
+}
+
 // navBar: the scope menus (highlighted while their picker is open), the
 // section toggles (highlighted while shown), then the commands of what is
 // on screen — or a recent notice such as an error. Each menu is its name
-// with the key letter (always the first) in cyan.
+// with its key letter in cyan.
 func (m *model) navBar(cmds string) string {
-	item := func(name string, on bool) string {
+	item := func(name, letter string, on bool) string {
 		st, key := menu, menu.Foreground(infoColor).Bold(true)
 		if on {
 			st, key = menuActive, menuActive.Underline(true)
 		}
-		return st.Render(" ") + key.Render(name[:1]) + st.Render(name[1:]+" ") + " "
+		i := max(0, strings.Index(name, letter))
+		return st.Render(" "+name[:i]) + key.Render(name[i:i+1]) + st.Render(name[i+1:]+" ") + " "
 	}
 	open := ""
 	if p, ok := m.top().(*pickerScreen); ok {
@@ -311,11 +325,11 @@ func (m *model) navBar(cmds string) string {
 	}
 	var b strings.Builder
 	for _, s := range scopes {
-		b.WriteString(item(s, s == open))
+		b.WriteString(item(s, s[:1], s == open))
 	}
 	b.WriteString(dim.Render("│ "))
 	for _, k := range m.kinds {
-		b.WriteString(item(k.Name(), m.page.shown(k)))
+		b.WriteString(item(k.Name(), toggleKey(k), m.page.shown(k)))
 	}
 	if m.notice != "" && time.Since(m.noticeAt) < 6*time.Second {
 		cmds = yellow.Render(m.notice)

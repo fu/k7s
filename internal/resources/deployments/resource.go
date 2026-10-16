@@ -133,13 +133,17 @@ func (r *Resource) Listed() []resources.Ref {
 	return out
 }
 
-// Links: a Deployment's pods use the secrets of its template.
+// Links: a Deployment's pods use the secrets and volume claims of its
+// template.
 func (r *Resource) Links() []resources.Link {
 	var out []resources.Link
 	for _, k := range r.order {
 		d := r.rows[k].row
 		for _, s := range d.Secrets {
 			out = append(out, resources.Link{From: d.ref(), To: resources.Ref{Kind: "Secret", Namespace: d.Namespace, Name: s}})
+		}
+		for _, c := range d.Claims {
+			out = append(out, resources.Link{From: d.ref(), To: resources.Ref{Kind: "PersistentVolumeClaim", Namespace: d.Namespace, Name: c}})
 		}
 	}
 	return out

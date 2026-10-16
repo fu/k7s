@@ -23,10 +23,11 @@ import (
 // Resource is one kind on the page: a section with a table, the keys its
 // selected row offers and the watch that keeps it current.
 type Resource interface {
-	// Name is the section title and menu entry; its first letter toggles it.
+	// Name is the section title and menu entry; its first letter toggles it
+	// (or the key a Keyed kind names).
 	Name() string
-	// Tag is its two-letter code in the change log: kubectl's short name
-	// where it has a two-letter one (po, rs), else our own (dp, se).
+	// Tag is its code in the change log, at most three letters: kubectl's
+	// short name where it has one (po, rs, pvc), else our own (dp, se).
 	Tag() string
 	// Objects are the API kinds it shows (e.g. "Pod"), so Kubernetes events
 	// about them get its tag.
@@ -60,6 +61,13 @@ type Resource interface {
 // suggests label selectors from it.
 type Labeled interface {
 	GVR() schema.GroupVersionResource
+}
+
+// Keyed is a kind whose toggle key is not the first letter of its name
+// (that one is taken); the key must be a letter of the name, e.g. "m" for
+// clai[m]s.
+type Keyed interface {
+	Key() string
 }
 
 // Stateful is a kind whose rows are in named states (Row.State), e.g. pods:

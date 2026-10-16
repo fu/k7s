@@ -85,12 +85,19 @@ secrets
    pod's request (`/R`) and limit (`/L`, `-` = none). CPU/MEM show ↑/↓ versus
    the previous poll, changed cells flash, new pods are highlighted, deleted
    ones stay struck through for 8s, port-forwarded pods show `⇄:<port>`.
-5. **secrets** — name, type, number of keys, age. Enter opens one: its keys
+5. **claims** — the PersistentVolumeClaims: a status light (green bound,
+   amber pending or resizing, red lost), the volume, capacity, access modes
+   (RWO, RWX, …) and storage class. Toggle with `m` (`c` is contexts).
+6. **volumes** — the PersistentVolumes bound to claims of the namespace
+   (with a filter: to the listed claims): status (yellow released: the
+   claim is gone, the data may remain), claim, capacity, reclaim policy.
+7. **secrets** — name, type, number of keys, age. Enter opens one: its keys
    with the values masked; `r` reveals them. Values are only fetched for the
    opened secret, never kept in the list.
 
 **Links**: the selected row lights up (dark teal) everything linked to it,
-across sections, following app → Deployment → ReplicaSet → pods → secrets.
+across sections, following app → Deployment → ReplicaSet → pods → secrets
+and claims → volumes.
 Select an app to see its deployments, their replicasets, pods and the
 secrets they use. Select a pod to see its replicaset, deployment, app and
 secrets. Select a secret to see who uses it, up to the app. Secrets are
@@ -102,17 +109,18 @@ and their parents, so green pods under a broken deployment chain do not
 look fine. The cyan "watching" dot breathes once per metrics refresh.
 
 **Change log** (`q`/`a` scroll it, line by line) — everything about what is
-shown, in time order. Each line starts with the time and a two-letter tag
-for the kind it is about: kubectl's short name where it has a two-letter
-one (`po` pods, `rs` replicasets, `ks`/`hr` Flux), else k7s' own (`dp`
-deployments, `se` secrets, `ap` Argo CD apps). Kubernetes events get the
+shown, in time order. Each line starts with the time and a tag (up to three
+letters) for the kind it is about: kubectl's short name where it has a short
+one (`po` pods, `rs` replicasets, `pvc` claims, `pv` volumes, `ks`/`hr`
+Flux), else k7s' own (`dp` deployments, `se` secrets, `ap` Argo CD apps). Kubernetes events get the
 tag of the object they are about; events about other kinds (Jobs, …) are
 `ev`.
 
 ```
-16:59:03 po MODIFIED web-7d4-x  Running 2/2  status PodInitializing → Running
-16:59:04 rs ADDED    web-7d4  revision 4, 3 replicas
-16:59:05 ev EVENT    job/agent-x  Completed: Job completed
+16:59:03 po  MODIFIED web-7d4-x  Running 2/2  status PodInitializing → Running
+16:59:04 rs  ADDED    web-7d4  revision 4, 3 replicas
+16:59:05 pvc MODIFIED data-db-0  Bound  resized 10Gi → 20Gi
+16:59:06 ev  EVENT    job/agent-x  Completed: Job completed
 ```
 
 It records:
@@ -140,7 +148,7 @@ The navigation bar shows the menus with their key letter in cyan:
 | key | |
 |-----|---|
 | `c` / `n` / `f` | pick the **c**ontext / **n**amespace / **f**ilter; enter switches and returns |
-| `g` / `d` / `r` / `p` / `s` | show or hide the **g**itops / **d**eployments / **r**eplicasets / **p**ods / **s**ecrets section |
+| `g` `d` `r` `p` `m` `v` `s` | show or hide the **g**itops / **d**eployments / **r**eplicasets / **p**ods / clai**m**s / **v**olumes / **s**ecrets section |
 | `↑↓`, `0-9` | move; jump to row `#` of the current section |
 | `l` / `h` / `w` | on a pod: **l**ogs, s**h**ell, for**w**ard a port (again: stop) |
 | `enter` | on a pod: logs; on a secret: open it |
@@ -194,10 +202,10 @@ internal/config/           the YAML config: colors, hidden sections and states,
 internal/kube/             cluster access: clients, contexts, a generic watch,
                            exec, port-forward, events, value formatting
 internal/resources/        the contract every kind implements
-  resource.go              Resource (a section), Stateful, Linker/Link, Host, Change
+  resource.go              Resource (a section), Keyed, Stateful, Linker/Link, Host, Change
   row.go                   Column, Row, Cell + Tone — what to show, not how
   steps.go                 what a key leads to: Picker, Viewer, Exec
-  gitops/ deployments/ replicasets/ pods/ secrets/
+  gitops/ deployments/ replicasets/ pods/ pvcs/ pvs/ secrets/
                            one folder per kind, each with
                              resource.go  watch, state, change log, links, Actions
                              row.go       its columns and cells

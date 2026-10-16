@@ -6,7 +6,7 @@
 //	watch.go     the pod watch and the metrics poll
 //	resource.go  state, change log, actions
 //	row.go       what a row shows
-//	links.go     workload → pod → secrets, for the link highlighting
+//	links.go     workload → pod → secrets, claims, for the link highlighting
 //	logs.go      logs and shell of a container
 //	forward.go   port-forwarding
 package pods
@@ -46,6 +46,8 @@ type Row struct {
 
 	// Secrets the pod uses: volumes, env, envFrom, image pull secrets.
 	Secrets []string
+	// Claims are the PersistentVolumeClaims it mounts.
+	Claims []string
 
 	// Most recent non-clean container exit, and which container it was.
 	LastExit          Termination
@@ -145,7 +147,20 @@ func FromPod(pod *corev1.Pod) Row {
 	r.WorkloadKind, r.WorkloadName = workload(pod)
 	r.OwnerKind, r.OwnerName = owner(pod)
 	r.Secrets = SecretsUsed(&pod.Spec)
+	r.Claims = ClaimsUsed(&pod.Spec)
 	return r
+}
+
+// ClaimsUsed lists the PersistentVolumeClaims a pod (or a pod template)
+// mounts.
+func ClaimsUsed(spec *corev1.PodSpec) []string {
+	var out []string
+	for _, v := range spec.Volumes {
+		if v.PersistentVolumeClaim != nil {
+			out = append(out, v.PersistentVolumeClaim.ClaimName)
+		}
+	}
+	return out
 }
 
 // SecretsUsed lists the secrets a pod (or a pod template) mounts, reads into

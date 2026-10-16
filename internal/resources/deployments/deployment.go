@@ -27,6 +27,7 @@ type Row struct {
 	Paused                             bool
 	Created                            time.Time
 	Secrets                            []string // used by its pod template
+	Claims                             []string // volume claims its pod template mounts
 	Stuck                              string   // why the rollout cannot progress, if it cannot
 	Progress                           string   // the Progressing condition's reason
 }
@@ -50,6 +51,7 @@ func fromDeployment(o *appsv1.Deployment) Row {
 		Paused:    o.Spec.Paused,
 		Created:   o.CreationTimestamp.Time,
 		Secrets:   pods.SecretsUsed(&o.Spec.Template.Spec),
+		Claims:    pods.ClaimsUsed(&o.Spec.Template.Spec),
 	}
 	if o.Spec.Replicas != nil {
 		d.Desired = *o.Spec.Replicas

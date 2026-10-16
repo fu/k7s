@@ -36,7 +36,7 @@ func TestChangesAreTaggedByKind(t *testing.T) {
 	out := strings.Join(lines, "\n")
 	// A pod event gets the pods' tag and the bare name; a Job (no section)
 	// is "ev" and keeps its kind; what a kind logs gets its tag.
-	for _, want := range []string{"po WARNING  web-1", "ev EVENT    job/agent-x", "po ADDED    web-2"} {
+	for _, want := range []string{"po  WARNING  web-1", "ev  EVENT    job/agent-x", "po  ADDED    web-2"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -130,7 +130,14 @@ func TestPageKeysAreUnique(t *testing.T) {
 		use(k, "page/action key")
 	}
 	for _, k := range registry() {
-		use(k.Name()[:1], "section "+k.Name())
+		key := toggleKey(k)
+		if !strings.Contains(k.Name(), key) {
+			t.Errorf("section %s: key %q is not a letter of its name", k.Name(), key)
+		}
+		use(key, "section "+k.Name())
+		if len(k.Tag()) > 3 {
+			t.Errorf("section %s: tag %q is longer than 3 letters", k.Name(), k.Tag())
+		}
 	}
 }
 
