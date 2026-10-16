@@ -146,10 +146,41 @@ uses client-go's exec (like `kubectl exec -it`, `bash` else `sh`), type
 `exit` to come back; port-forwarding works like `kubectl port-forward` (same
 local port when free). Pods with several containers or ports get a picker.
 
+## Config
+
+`~/.config/k7s/config.yaml` (or `$XDG_CONFIG_HOME/k7s/config.yaml`, or
+`--config <file>`) keeps the colors and the state k7s comes back to. k7s
+writes it on the first start and whenever you toggle a section or switch
+namespace:
+
+```yaml
+version: 1              # the file format; older files are migrated
+sections:
+  hidden:               # sections toggled off stay off on the next start
+    - replicasets
+namespaces:             # the last namespace per context, used without -n
+  dev-cluster: shop
+colors:                 # ANSI 0-255 or #rrggbb
+  good: "2"             # running, synced, healthy
+  busy: "214"           # on its way: pending, rolling out
+  warn: "3"             # worth a look: restarts, high usage
+  bad: "1"              # failing
+  info: "6"             # accents, the badge, the menus' keys
+  flash: "3"            # background of a cell that just changed
+  selected: "237"       # background of the selected row
+  linked: "23"          # background of rows linked to it
+  menu: "236"           # background of the menus
+```
+
+The file is rewritten by k7s, so comments do not survive. A missing color
+falls back to its default. A file written by a newer k7s (higher
+`version`) is used as far as understood but never overwritten.
+
 ## Code layout
 
 ```
-cmd/                       CLI: k7s [-n] [-l] [--once]
+cmd/                       CLI: k7s [-n] [-l] [--once] [--config]
+internal/config/           the YAML config: colors, hidden sections, last namespaces
 internal/kube/             cluster access: clients, contexts, a generic watch,
                            exec, port-forward, events, value formatting
 internal/resources/        the contract every kind implements

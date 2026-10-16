@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
+	"github.com/fu/k7s/internal/config"
 	"github.com/fu/k7s/internal/kube"
 	"github.com/fu/k7s/internal/resources"
 	"github.com/fu/k7s/internal/resources/deployments"
@@ -40,6 +41,9 @@ type Info struct {
 	Selector  string
 	Refresh   time.Duration
 	Notice    string // shown in the navigation bar at start
+	// Config has the colors and the state to come back to (hidden
+	// sections, last namespaces); changes are saved to it.
+	Config *config.Config
 }
 
 // screen is what opens on top of the page: a picker or a viewer.
@@ -80,8 +84,13 @@ func Run(ctx context.Context, flags *genericclioptions.ConfigFlags, client *kube
 	// k7s picks its own colors: don't ask the terminal for its background
 	// (a terminal that never answers would stall the start for seconds).
 	lipgloss.SetHasDarkBackground(true)
+	if info.Config == nil {
+		info.Config = &config.Config{} // nothing to restore, nothing saved
+	}
+	setPalette(info.Config.Colors)
 
 	m := &model{ctx: ctx, flags: flags, client: client, info: info, kinds: registry()}
+	m.page.cfg = info.Config
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
 	m.send = p.Send
 	if info.Notice != "" {
@@ -203,9 +212,16 @@ func (m *model) closeAll() {
 	}
 }
 
-// scopeChanged restarts everything for the new context, namespace or filter.
+// scopeChanged restarts everything for the new context, namespace or filter,
+// and remembers the namespace for the context.
 func (m *model) scopeChanged() tea.Cmd {
 	m.closeAll()
+	if c := m.info.Config; c != nil {
+		c.SetNamespace(m.info.Context, m.info.Namespace)
+		if err := c.Save(); err != nil {
+			m.Notice("config: " + err.Error())
+		}
+	}
 	return m.start()
 }
 
@@ -269,7 +285,7 @@ var scopes = []string{"contexts", "namespaces", "filter"}
 // with the key letter (always the first) in cyan.
 func (m *model) navBar(cmds string) string {
 	item := func(name string, on bool) string {
-		st, key := menu, menu.Foreground(lipgloss.Color("6")).Bold(true)
+		st, key := menu, menu.Foreground(infoColor).Bold(true)
 		if on {
 			st, key = menuActive, menuActive.Underline(true)
 		}

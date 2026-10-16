@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/fu/k7s/internal/config"
 	"github.com/fu/k7s/internal/resources"
 )
 
@@ -18,23 +19,23 @@ import (
 // which keys it offers.
 
 type page struct {
-	hidden   map[string]bool
-	selected string // "<kind>/<row key>"
-	moved    bool   // the user moved the selection; until then it stays on the top row
-	offset   int    // first visible body line
+	cfg      *config.Config // which sections are hidden
+	selected string         // "<kind>/<row key>"
+	moved    bool           // the user moved the selection; until then it stays on the top row
+	offset   int            // first visible body line
 	jumpBuf  string
 	jumpAt   time.Time
 }
 
 func (p *page) reset() { p.selected, p.moved, p.offset, p.jumpBuf = "", false, 0, "" }
 
-func (p *page) shown(k resources.Resource) bool { return !p.hidden[k.Name()] }
+func (p *page) shown(k resources.Resource) bool { return p.cfg == nil || !p.cfg.Hidden(k.Name()) }
 
 func (p *page) toggle(k resources.Resource) {
-	if p.hidden == nil {
-		p.hidden = map[string]bool{}
+	if p.cfg == nil {
+		p.cfg = &config.Config{}
 	}
-	p.hidden[k.Name()] = !p.hidden[k.Name()]
+	p.cfg.SetHidden(k.Name(), p.shown(k))
 }
 
 // sections are the kinds shown on the page.
@@ -117,6 +118,9 @@ func (m *model) pageKey(msg tea.KeyMsg) tea.Cmd {
 	for _, k := range m.kinds {
 		if key == k.Name()[:1] {
 			m.page.toggle(k)
+			if err := m.page.cfg.Save(); err != nil {
+				m.Notice("config: " + err.Error())
+			}
 			return nil
 		}
 	}

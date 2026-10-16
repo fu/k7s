@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
+	"github.com/fu/k7s/internal/config"
 	"github.com/fu/k7s/internal/kube"
 	"github.com/fu/k7s/internal/tui"
 )
@@ -29,6 +30,7 @@ type options struct {
 	selector string
 	refresh  time.Duration
 	once     bool
+	config   string
 }
 
 func newRootCmd() *cobra.Command {
@@ -37,12 +39,15 @@ func newRootCmd() *cobra.Command {
 		Use:   "k7s [-n namespace] [-l selector]",
 		Short: "k7s - one namespace, everything in it, live",
 		Long: `k7s shows one namespace on one page, updating in place: the gitops apps
-that deploy it, its pods (with CPU/MEM) and secrets, and a change log of
-everything that happens there — including the events from before you started.
+that deploy it, its deployments, replicasets, pods (with CPU/MEM) and
+secrets, and a change log of everything that happens there — including the
+events from before you started.
 
-Pick the namespace with -n (default: the context's namespace) and narrow it
-to one app with -l. Inside k7s, c / n / f switch context, namespace and
-filter; p / s / g show or hide the pods, secrets and gitops sections.
+Pick the namespace with -n (default: the one you last used in this context,
+else the context's) and narrow it to one app with -l. Inside k7s, c / n / f
+switch context, namespace and filter; g / d / r / p / s show or hide the
+sections. Colors, hidden sections and the last namespaces are kept in
+~/.config/k7s/config.yaml.
 
 Examples:
   k7s                       # the current namespace
@@ -59,6 +64,7 @@ Examples:
 	root.Flags().StringVarP(&o.selector, "selector", "l", "", "Label selector to narrow everything to one app (e.g. app=web)")
 	root.Flags().DurationVar(&o.refresh, "refresh", 5*time.Second, "Metrics refresh interval")
 	root.Flags().BoolVar(&o.once, "once", false, "Print the sections once and exit (default when stdout is not a terminal)")
+	root.Flags().StringVar(&o.config, "config", config.Path(), "k7s config file (colors, hidden sections, last namespaces)")
 	return root
 }
 
@@ -98,6 +104,21 @@ func run(ctx context.Context, o *options) error {
 		Namespace: client.Namespace,
 		Selector:  o.selector,
 		Refresh:   o.refresh,
+	}
+
+	cfg, err := config.Load(o.config)
+	switch {
+	case err != nil:
+		// Run with the defaults and leave the broken file alone.
+		info.Notice = "config: " + err.Error() + " (using defaults)"
+		cfg = &config.Config{Version: config.Version, Colors: config.Defaults}
+	case cfg.ReadOnly():
+		info.Notice = "config " + o.config + " is from a newer k7s: read only"
+	}
+	info.Config = cfg
+	// Without -n, come back to the namespace last used in this context.
+	if ns := cfg.Namespaces[client.Context]; ns != "" && *configFlags.Namespace == "" {
+		info.Namespace, client.Namespace = ns, ns
 	}
 	if o.once || !term.IsTerminal(int(os.Stdout.Fd())) {
 		return tui.Print(ctx, client, info, os.Stdout)

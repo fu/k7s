@@ -55,11 +55,11 @@ func Print(ctx context.Context, client *kube.Client, info Info, w io.Writer) err
 
 	fmt.Fprintf(w, "ctx %s │ ns %s\n", info.Context, info.Namespace)
 	for _, k := range h.kinds {
-		if !k.Available() {
+		if !k.Available() || (info.Config != nil && info.Config.Hidden(k.Name())) {
 			continue
 		}
 		rows := k.Rows()
-		fmt.Fprintf(w, "\n%s (%d)\n", k.Name(), len(rows))
+		fmt.Fprintf(w, "\n%s\n", k.Name())
 		if len(rows) == 0 {
 			fmt.Fprintf(w, "  %s\n", k.Empty())
 			continue

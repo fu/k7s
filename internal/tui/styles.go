@@ -5,27 +5,36 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/fu/k7s/internal/config"
 	"github.com/fu/k7s/internal/resources"
 )
 
 // Every color k7s uses, and the text helpers all screens draw with.
 
 var (
-	header     = lipgloss.NewStyle().Bold(true)
-	badge      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("6")).Padding(0, 1)
-	dim        = lipgloss.NewStyle().Faint(true)
-	green      = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	yellow     = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	amber      = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	red        = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	cyan       = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	flash      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("3"))
-	struck     = lipgloss.NewStyle().Faint(true).Strikethrough(true)
-	menu       = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("236"))
-	menuActive = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("6"))
-	selectedBG = lipgloss.Color("237")
-	linkedBG   = lipgloss.Color("23") // dark teal: linked to the selected row
+	header = lipgloss.NewStyle().Bold(true)
+	dim    = lipgloss.NewStyle().Faint(true)
+	struck = lipgloss.NewStyle().Faint(true).Strikethrough(true)
+
+	// Set from the palette (config colors).
+	badge, green, yellow, amber, red, cyan, flash, menu, menuActive lipgloss.Style
+	selectedBG, linkedBG, infoColor                                 lipgloss.Color
 )
+
+func init() { setPalette(config.Defaults) }
+
+// setPalette sets the colors: the defaults, or the config's.
+func setPalette(c config.Colors) {
+	col := func(s string) lipgloss.Color { return lipgloss.Color(s) }
+	fg := func(s string) lipgloss.Style { return lipgloss.NewStyle().Foreground(col(s)) }
+	green, amber, yellow, red, cyan = fg(c.Good), fg(c.Busy), fg(c.Warn), fg(c.Bad), fg(c.Info)
+	infoColor = col(c.Info)
+	badge = lipgloss.NewStyle().Bold(true).Foreground(col("0")).Background(infoColor).Padding(0, 1)
+	flash = lipgloss.NewStyle().Bold(true).Foreground(col("0")).Background(col(c.Flash))
+	menu = lipgloss.NewStyle().Foreground(col("250")).Background(col(c.Menu))
+	menuActive = lipgloss.NewStyle().Bold(true).Foreground(col("0")).Background(infoColor)
+	selectedBG, linkedBG = col(c.Selected), col(c.Linked)
+}
 
 // style is the color of a tone.
 func style(t resources.Tone) lipgloss.Style {
