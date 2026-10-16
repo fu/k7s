@@ -67,7 +67,9 @@ type rowState struct {
 	deletedAt time.Time
 }
 
-func (r *Resource) Name() string { return "pods" }
+func (r *Resource) Name() string      { return "pods" }
+func (r *Resource) Tag() string       { return "po" }
+func (r *Resource) Objects() []string { return []string{"Pod"} }
 func (r *Resource) GVR() schema.GroupVersionResource {
 	return corev1.SchemeGroupVersion.WithResource("pods")
 }

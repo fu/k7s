@@ -19,14 +19,15 @@ hide:
   pods: [completed]
   replicasets: [old]
 
-# Colors: an ANSI number (0-255) or #rrggbb.
+# Colors as "#rrggbb" (quoted: # starts a YAML comment). An ANSI number
+# ("0"-"255") works too and follows your terminal's theme instead.
 colors:
-  good: "2"         # running, synced, healthy
-  busy: "214"       # on its way: pending, rolling out
-  warn: "3"         # worth a look: restarts, high usage
-  bad: "1"          # failing
-  info: "6"         # accents, the k7s badge, the menus' keys
-  flash: "3"        # background of a cell that just changed
-  selected: "237"   # background of the selected row
-  linked: "23"      # background of rows linked to the selected one
-  menu: "236"       # background of the menus
+  good: "#5faf5f"       # green: running, synced, healthy
+  busy: "#ffaf00"       # amber: on its way (pending, rolling out)
+  warn: "#d7d700"       # yellow: worth a look (restarts, high usage)
+  bad: "#d75f5f"        # red: failing
+  info: "#00afaf"       # cyan: accents, the k7s badge, the menus' keys
+  flash: "#d7d700"      # background of a cell that just changed
+  selected: "#3a3a3a"   # background of the selected row
+  linked: "#005f5f"     # background of rows linked to the selected one
+  menu: "#303030"       # background of the menus

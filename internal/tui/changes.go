@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -95,7 +96,11 @@ func changeLine(c resources.Change) string {
 	default:
 		k = yellow.Render(k)
 	}
-	s := dim.Render(c.At.Format("15:04:05")) + " " + k + " " + c.Object
+	tag := c.Tag
+	if tag == "" {
+		tag = "  "
+	}
+	s := dim.Render(c.At.Format("15:04:05")) + " " + cyan.Render(tag) + " " + k + " " + c.Object
 	if len(c.State) > 0 {
 		s += "  " + cells(c.State)
 	}
@@ -112,8 +117,8 @@ func changeLine(c resources.Change) string {
 	return s
 }
 
-// changeIndent lines wrapped continuation lines up after the timestamp.
-const changeIndent = 9
+// changeIndent lines wrapped continuation lines up after time and tag.
+const changeIndent = 12
 
 // wrapChange soft-wraps one entry. Its first line starts at the left edge;
 // wrapped parts and extra lines are indented under the text.
@@ -159,12 +164,17 @@ func (m *model) addEvent(msg eventMsg) {
 	if msg.gen != m.changes.gen || e.Reason == "BackOff" {
 		return // BackOff is already visible as restarts / CrashLoopBackOff
 	}
-	c := resources.Change{At: e.At, Kind: resources.Event, Object: strings.ToLower(e.Kind) + "/" + e.Name, Detail: e.Reason + ": " + e.Message}
+	// Tagged like the kind showing the object; other kinds (Jobs, Nodes, …)
+	// are "ev" and keep their kind in the name.
+	c := resources.Change{At: e.At, Tag: "ev", Kind: resources.Event, Object: strings.ToLower(e.Kind) + "/" + e.Name, Detail: e.Reason + ": " + e.Message}
+	for _, k := range m.kinds {
+		if slices.Contains(k.Objects(), e.Kind) {
+			c.Tag, c.Object = k.Tag(), e.Name
+			break
+		}
+	}
 	if e.Type == "Warning" {
 		c.Kind = resources.Warning
-	}
-	if e.Kind == "Pod" {
-		c.Object = e.Name
 	}
 	if e.Count > 1 {
 		c.Detail += fmt.Sprintf(" (×%d)", e.Count)

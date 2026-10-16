@@ -24,7 +24,7 @@ func TestChangesSayWhatBrokeAndWhatGotFixed(t *testing.T) {
 		t.Fatalf("want 2 changes, got %+v", h.Changes)
 	}
 	got := h.Changes[0]
-	if got.Object != "app/web" || got.Detail != "health Healthy → Degraded, Deployment web Degraded" ||
+	if got.Object != "web" || got.Tag != "ap" || got.Detail != "health Healthy → Degraded, Deployment web Degraded" ||
 		len(got.Items) != 1 || got.Items[0] != broken.Problems[0] || len(got.State) != 0 {
 		t.Errorf("breaking change: %+v", got)
 	}

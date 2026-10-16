@@ -120,9 +120,23 @@ func (m *model) start() tea.Cmd {
 	m.watchEvents()
 	var cmds []tea.Cmd
 	for _, k := range m.kinds {
-		cmds = append(cmds, k.Start(m))
+		cmds = append(cmds, k.Start(kindHost{m, k}))
 	}
 	return tea.Batch(cmds...)
+}
+
+// kindHost is the Host a kind gets: the model, tagging what the kind logs
+// with its two-letter tag (unless the change has one already).
+type kindHost struct {
+	*model
+	kind resources.Resource
+}
+
+func (h kindHost) Log(c resources.Change) {
+	if c.Tag == "" {
+		c.Tag = h.kind.Tag()
+	}
+	h.model.Log(c)
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

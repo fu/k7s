@@ -63,7 +63,23 @@ type appRow struct {
 	deletedAt     time.Time
 }
 
-func (r *Resource) Name() string    { return "gitops" }
+func (r *Resource) Name() string { return "gitops" }
+
+// Tag: ap (Argo CD Application); Flux changes say ks or hr themselves.
+func (r *Resource) Tag() string       { return "ap" }
+func (r *Resource) Objects() []string { return []string{"Application", "Kustomization", "HelmRelease"} }
+
+// tag is an app's tag: kubectl's short names for the Flux kinds.
+func tag(a App) string {
+	switch a.Kind {
+	case "Kustomization":
+		return "ks"
+	case "HelmRelease":
+		return "hr"
+	}
+	return "ap"
+}
+
 func (r *Resource) Available() bool { return r.detected && r.engine != None }
 func (r *Resource) Ready() bool     { return r.detected && (r.engine == None || r.synced) }
 
@@ -297,7 +313,7 @@ func (r *Resource) logInitialProblems() {
 func (r *Resource) log(at time.Time, kind resources.ChangeKind, a App, detail string, items ...string) {
 	key := a.Key()
 	r.host.Log(resources.Change{
-		At: at, Kind: kind, Object: "app/" + a.Name, Detail: detail, Items: items,
+		At: at, Tag: tag(a), Kind: kind, Object: a.Name, Detail: detail, Items: items,
 		Show: func() bool { return slices.Contains(r.responsible(), key) },
 	})
 }

@@ -29,10 +29,11 @@ func setPalette(c config.Colors) {
 	fg := func(s string) lipgloss.Style { return lipgloss.NewStyle().Foreground(col(s)) }
 	green, amber, yellow, red, cyan = fg(c.Good), fg(c.Busy), fg(c.Warn), fg(c.Bad), fg(c.Info)
 	infoColor = col(c.Info)
-	badge = lipgloss.NewStyle().Bold(true).Foreground(col("0")).Background(infoColor).Padding(0, 1)
-	flash = lipgloss.NewStyle().Bold(true).Foreground(col("0")).Background(col(c.Flash))
-	menu = lipgloss.NewStyle().Foreground(col("250")).Background(col(c.Menu))
-	menuActive = lipgloss.NewStyle().Bold(true).Foreground(col("0")).Background(infoColor)
+	black, light := col("#000000"), col("#bcbcbc") // text on the colored backgrounds
+	badge = lipgloss.NewStyle().Bold(true).Foreground(black).Background(infoColor).Padding(0, 1)
+	flash = lipgloss.NewStyle().Bold(true).Foreground(black).Background(col(c.Flash))
+	menu = lipgloss.NewStyle().Foreground(light).Background(col(c.Menu))
+	menuActive = lipgloss.NewStyle().Bold(true).Foreground(black).Background(infoColor)
 	selectedBG, linkedBG = col(c.Selected), col(c.Linked)
 }
 

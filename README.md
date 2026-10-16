@@ -102,7 +102,20 @@ and their parents, so green pods under a broken deployment chain do not
 look fine. The cyan "watching" dot breathes once per metrics refresh.
 
 **Change log** (`q`/`a` scroll it, line by line) — everything about what is
-shown, in time order:
+shown, in time order. Each line starts with the time and a two-letter tag
+for the kind it is about: kubectl's short name where it has a two-letter
+one (`po` pods, `rs` replicasets, `ks`/`hr` Flux), else k7s' own (`dp`
+deployments, `se` secrets, `ap` Argo CD apps). Kubernetes events get the
+tag of the object they are about; events about other kinds (Jobs, …) are
+`ev`.
+
+```
+16:59:03 po MODIFIED web-7d4-x  Running 2/2  status PodInitializing → Running
+16:59:04 rs ADDED    web-7d4  revision 4, 3 replicas
+16:59:05 ev EVENT    job/agent-x  Completed: Job completed
+```
+
+It records:
 
 - deployment rollouts (image changes), scaling, readiness and why a rollout
   is stuck; new replicaset revisions and their scaling

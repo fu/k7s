@@ -56,7 +56,9 @@ type rowState struct {
 	deletedAt time.Time
 }
 
-func (r *Resource) Name() string { return "deployments" }
+func (r *Resource) Name() string      { return "deployments" }
+func (r *Resource) Tag() string       { return "dp" }
+func (r *Resource) Objects() []string { return []string{"Deployment"} }
 func (r *Resource) GVR() schema.GroupVersionResource {
 	return appsv1.SchemeGroupVersion.WithResource("deployments")
 }
@@ -182,7 +184,7 @@ func (r *Resource) Status() []resources.Cell {
 // ---- state and change log ------------------------------------------------------
 
 func (r *Resource) log(kind resources.ChangeKind, d Row, detail string) {
-	r.host.Log(resources.Change{At: time.Now(), Kind: kind, Object: "deployment/" + d.Name, Detail: detail,
+	r.host.Log(resources.Change{At: time.Now(), Kind: kind, Object: d.Name, Detail: detail,
 		State: []resources.Cell{{Text: d.ReadyString(), Tone: d.Light()}}})
 }
 

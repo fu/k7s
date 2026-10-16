@@ -20,6 +20,28 @@ type listing struct {
 }
 
 func (l listing) Listed() []resources.Ref { return l.refs }
+func (l listing) Tag() string             { return "po" }
+func (l listing) Objects() []string       { return []string{"Pod"} }
+
+func TestChangesAreTaggedByKind(t *testing.T) {
+	m := &model{kinds: []resources.Resource{listing{}}}
+	m.addEvent(eventMsg{e: kube.Event{Namespace: "ns", Kind: "Pod", Name: "web-1", Type: "Warning", Reason: "Unhealthy", Message: "probe failed", At: time.Now()}})
+	m.addEvent(eventMsg{e: kube.Event{Namespace: "ns", Kind: "Job", Name: "agent-x", Reason: "Completed", Message: "Job completed", At: time.Now()}})
+	kindHost{m, listing{}}.Log(resources.Change{At: time.Now(), Kind: resources.Added, Object: "web-2"})
+
+	var lines []string
+	for _, c := range m.changes.entries {
+		lines = append(lines, changeLine(c))
+	}
+	out := strings.Join(lines, "\n")
+	// A pod event gets the pods' tag and the bare name; a Job (no section)
+	// is "ev" and keeps its kind; what a kind logs gets its tag.
+	for _, want := range []string{"po WARNING  web-1", "ev EVENT    job/agent-x", "po ADDED    web-2"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
 
 func TestKubeEventsInChangeLog(t *testing.T) {
 	m := &model{}
@@ -31,7 +53,7 @@ func TestKubeEventsInChangeLog(t *testing.T) {
 		t.Fatalf("BackOff is skipped, the rest kept: %+v", ev)
 	}
 	// Kept in time order: the hour-old event (history) comes first.
-	if ev[0].Kind != resources.Event || ev[0].Object != "deployment/web" || ev[1].Detail != "Unhealthy: Liveness probe failed (×3)" {
+	if ev[0].Kind != resources.Event || ev[0].Tag != "ev" || ev[0].Object != "deployment/web" || ev[1].Detail != "Unhealthy: Liveness probe failed (×3)" {
 		t.Errorf("unexpected events: %+v", ev)
 	}
 }

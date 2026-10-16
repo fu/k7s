@@ -44,7 +44,7 @@ type Sections struct {
 	Hidden []string `yaml:"hidden"`
 }
 
-// Colors are ANSI numbers ("0"–"255") or "#rrggbb".
+// Colors are "#rrggbb" or ANSI numbers ("0"–"255").
 type Colors struct {
 	Good     string `yaml:"good"`
 	Busy     string `yaml:"busy"`

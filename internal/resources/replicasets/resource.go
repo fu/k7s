@@ -55,7 +55,9 @@ type rowState struct {
 	deletedAt time.Time
 }
 
-func (r *Resource) Name() string { return "replicasets" }
+func (r *Resource) Name() string      { return "replicasets" }
+func (r *Resource) Tag() string       { return "rs" }
+func (r *Resource) Objects() []string { return []string{"ReplicaSet"} }
 func (r *Resource) GVR() schema.GroupVersionResource {
 	return appsv1.SchemeGroupVersion.WithResource("replicasets")
 }
@@ -160,7 +162,7 @@ func (r *Resource) Status() []resources.Cell {
 // ---- state and change log ------------------------------------------------------
 
 func (r *Resource) log(kind resources.ChangeKind, s Row, detail string) {
-	r.host.Log(resources.Change{At: time.Now(), Kind: kind, Object: "replicaset/" + s.Name, Detail: detail})
+	r.host.Log(resources.Change{At: time.Now(), Kind: kind, Object: s.Name, Detail: detail})
 }
 
 // apply logs what a rollout does to its ReplicaSets: a new revision, scaling

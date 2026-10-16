@@ -25,6 +25,12 @@ import (
 type Resource interface {
 	// Name is the section title and menu entry; its first letter toggles it.
 	Name() string
+	// Tag is its two-letter code in the change log: kubectl's short name
+	// where it has a two-letter one (po, rs), else our own (dp, se).
+	Tag() string
+	// Objects are the API kinds it shows (e.g. "Pod"), so Kubernetes events
+	// about them get its tag.
+	Objects() []string
 	// Start (re)starts watching the host's namespace and filter; Stop ends it.
 	Start(h Host) tea.Cmd
 	Stop()
@@ -97,6 +103,7 @@ type Ref struct {
 // Change is one change-log entry; the tui formats and wraps it.
 type Change struct {
 	At     time.Time
+	Tag    string // which kind it is about (filled in from the kind that logs it)
 	Kind   ChangeKind
 	Object string   // e.g. "web-7d4-x", "secret/tls"
 	State  []Cell   // e.g. the pod status with its light

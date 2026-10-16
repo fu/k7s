@@ -48,7 +48,9 @@ type (
 	}
 )
 
-func (r *Resource) Name() string { return "secrets" }
+func (r *Resource) Name() string      { return "secrets" }
+func (r *Resource) Tag() string       { return "se" }
+func (r *Resource) Objects() []string { return []string{"Secret"} }
 func (r *Resource) GVR() schema.GroupVersionResource {
 	return corev1.SchemeGroupVersion.WithResource("secrets")
 }
@@ -112,7 +114,7 @@ func (r *Resource) Update(msg tea.Msg) tea.Cmd {
 // logChange records added, deleted and updated secrets (an update is a new
 // resourceVersion; the values themselves are never looked at).
 func (r *Resource) logChange(old Row, existed bool, row Row, deleted bool) {
-	c := resources.Change{At: time.Now(), Object: "secret/" + row.Name}
+	c := resources.Change{At: time.Now(), Object: row.Name}
 	switch {
 	case deleted:
 		c.Kind = resources.Deleted
