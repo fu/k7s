@@ -125,6 +125,17 @@ internal/tui          screens and navigation only
 go build -o bin/k7s .
 ```
 
+Behind a TLS-inspecting corporate proxy, Go must trust the proxy's root CA to
+download modules. Note that on macOS Go uses *only* `SSL_CERT_FILE` when it is
+set (instead of the Keychain), so a bundle without the corporate root fails
+with `x509: certificate signed by unknown authority`. Either unset it, or
+point it at a bundle that includes the corporate root:
+
+```bash
+cat /etc/ssl/cert.pem corporate-root.pem > ~/.certs/ca-bundle.pem
+SSL_CERT_FILE=~/.certs/ca-bundle.pem go build -o bin/k7s .
+```
+
 ## Release
 
 Push a version tag; the `release` workflow tests, builds macOS/Linux/Windows
@@ -140,13 +151,6 @@ token allowed to push to `fu/homebrew-tap`); without it, it is skipped. Check
 the config locally with
 `go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean`.
 
-Behind a TLS-inspecting corporate proxy, Go must trust the proxy's root CA to
-download modules. Note that on macOS Go uses *only* `SSL_CERT_FILE` when it is
-set (instead of the Keychain), so a bundle without the corporate root fails
-with `x509: certificate signed by unknown authority`. Either unset it, or
-point it at a bundle that includes the corporate root:
+## License
 
-```bash
-cat /etc/ssl/cert.pem corporate-root.pem > ~/.certs/ca-bundle.pem
-SSL_CERT_FILE=~/.certs/ca-bundle.pem go build -o bin/k7s .
-```
+[Apache License 2.0](LICENSE), the same as kubectl and client-go.
