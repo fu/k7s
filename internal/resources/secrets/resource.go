@@ -1,18 +1,16 @@
 // Package secrets is the secrets kind: name, type, number of keys and age.
-// Opening one fetches its values, masked until revealed.
 //
 //	watch.go     the secret watch (values dropped as they arrive)
-//	resource.go  state, change log, actions
+//	resource.go  state, change log
 //	row.go       what a row shows
+//	commands/    open (values fetched then, masked until revealed)
 package secrets
 
 import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	corev1 "k8s.io/api/core/v1"
@@ -139,50 +137,10 @@ func (r *Resource) resort() {
 	sort.Strings(r.order)
 }
 
-func (r *Resource) Actions(key string) []resources.Action {
+// Secret returns the secret with key (without values), for commands.
+func (r *Resource) Secret(key string) (Row, bool) {
 	row, ok := r.rows[key]
-	if !ok {
-		return nil
-	}
-	return []resources.Action{{Key: "enter", Hint: "[enter] open", Do: func() resources.Step { return r.open(row) }}}
-}
-
-// open shows the secret's keys; values are fetched now and masked until
-// revealed.
-func (r *Resource) open(row Row) resources.Step {
-	client := r.host.Client()
-	return &resources.Viewer{
-		Title: "secret " + row.Name + " │ " + row.Type,
-		Stream: func(ctx context.Context, emit func(resources.Line)) error {
-			ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			defer cancel()
-			data, err := Values(ctx, client, row.Namespace, row.Name)
-			if err != nil {
-				return err
-			}
-			keys := make([]string, 0, len(data))
-			for k := range data {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				v := data[k]
-				emit(resources.Line{Text: fmt.Sprintf("%s  (%d bytes)", k, len(v)), Tone: resources.Strong, Indent: 2})
-				switch {
-				case !utf8.Valid(v):
-					emit(resources.Line{Text: fmt.Sprintf("<binary, %d bytes>", len(v)), Tone: resources.Dim, Indent: 4})
-				case len(v) == 0:
-					emit(resources.Line{Text: "(empty)", Tone: resources.Dim, Indent: 4})
-				default:
-					emit(resources.Line{Text: strings.TrimRight(string(v), "\n"), Indent: 4, Secret: true})
-				}
-			}
-			if len(keys) == 0 {
-				emit(resources.Line{Text: "no keys", Tone: resources.Dim, Indent: 2})
-			}
-			return nil
-		},
-	}
+	return row, ok
 }
 
 func (r *Resource) Listed() []resources.Ref {

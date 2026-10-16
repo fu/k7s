@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -69,9 +70,45 @@ func TestVersion1FileIsMigrated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Version != 2 || !c.Hidden("secrets") || !c.StateHidden("pods", "completed") ||
+	if c.Version != Version || !c.Hidden("secrets") || !c.StateHidden("pods", "completed") ||
 		c.Colors.Linked != "#123456" || c.Colors.Good != Defaults.Good {
 		t.Errorf("migrated: %+v", c)
+	}
+}
+
+func TestCommandKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	// The user remaps shell, adds yaml everywhere, turns off describe for
+	// secrets (and so drops open), and says nothing about claims.
+	os.WriteFile(path, []byte(`version: 3
+commands:
+  "*": {describe: d, yaml: y}
+  pods: {shell: x, logs: l enter}
+  secrets: {describe: ""}
+`), 0o644)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		section, command, want string
+	}{
+		{"pods", "shell", "x"},
+		{"pods", "logs", "l enter"},
+		{"pods", "forward", ""}, // not listed: not offered
+		{"pods", "describe", "d"},
+		{"pods", "yaml", "y"},
+		{"secrets", "describe", ""}, // turned off for secrets
+		{"secrets", "open", ""},     // the user's secrets section has no open
+		{"claims", "describe", "d"},
+	} {
+		if got := strings.Join(c.CommandKeys(tc.section, tc.command), " "); got != tc.want {
+			t.Errorf("%s %s: keys %q, want %q", tc.section, tc.command, got, tc.want)
+		}
+	}
+	// A config without commands gets the defaults.
+	if got := Default().CommandKeys("pods", "shell"); len(got) != 1 || got[0] != "h" {
+		t.Errorf("default shell key: %v", got)
 	}
 }
 

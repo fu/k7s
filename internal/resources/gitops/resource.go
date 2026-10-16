@@ -86,8 +86,6 @@ func (r *Resource) Ready() bool     { return r.detected && (r.engine == None || 
 // The apps relate to what others list; nothing relates to them.
 func (r *Resource) Listed() []resources.Ref { return nil }
 
-func (r *Resource) Actions(string) []resources.Action { return nil }
-
 func (r *Resource) Empty() string { return "no app deploys what is listed here" }
 
 // Start detects the engine of a new cluster and watches it. On a namespace

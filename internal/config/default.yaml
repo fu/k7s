@@ -5,7 +5,7 @@
 # comments do not survive there. Edit it while k7s is not running.
 
 # The file format. k7s migrates older files and never overwrites a newer one.
-version: 2
+version: 3
 
 # Sections toggled off with their key (g e r p m v s) stay off on the next start.
 sections:
@@ -20,6 +20,24 @@ sections:
 hide:
   pods: [completed]
   replicasets: [old]
+
+# Commands the selected row offers, per section, and their keys (several:
+# "l enter"). Commands not listed exist but are not offered; "*" is for every
+# section ("pods: {}" offers no pod commands). Page keys (c n f, the section
+# keys, q a Q A, j k G, digits, esc) win over commands. Available:
+#   every section:  describe (kubectl describe), yaml (kubectl get -o yaml,
+#                   secret values masked)
+#   pods:           logs, previous-logs (kubectl logs -p), shell, forward
+#   secrets:        open (values masked until r reveals them)
+commands:
+  "*":
+    describe: d
+  pods:
+    logs: l enter
+    shell: h
+    forward: w
+  secrets:
+    open: enter
 
 # Colors as "#rrggbb" (quoted: # starts a YAML comment). An ANSI number
 # ("0"-"255") works too and follows your terminal's theme instead.

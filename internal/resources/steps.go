@@ -9,14 +9,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 )
 
-// Action is a key the selected row offers.
-type Action struct {
-	Key  string      // the key to press
-	Hint string      // for the navigation bar, key in [brackets]: "s[h]ell"; empty hides it
-	Do   func() Step // what it does; it may also act directly and return nil
-}
-
-// Step is what an action leads to; the tui shows it the same way for every
+// Step is what a command leads to; the tui shows it the same way for every
 // kind: a *Picker, a *Viewer, an *Exec, a Cmd, or Stay.
 type Step interface{ step() }
 

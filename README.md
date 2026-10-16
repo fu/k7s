@@ -154,10 +154,24 @@ The navigation bar shows the menus with their key letter in cyan:
 |-----|---|
 | `c` / `n` / `f` | pick the **c**ontext / **n**amespace / **f**ilter; enter switches and returns |
 | `g` `e` `r` `p` `m` `v` `s` | show or hide the **g**itops / d**e**ployments / **r**eplicasets / **p**ods / clai**m**s / **v**olumes / **s**ecrets section |
-| `d` | on any row: **d**escribe it, the same text as `kubectl describe` (from kubectl's own describe code) |
 | `↑↓`, `0-9` | move; jump to row `#` of the current section |
+| `d` | on any row: **d**escribe it, the same text as `kubectl describe` (from kubectl's own describe code) |
 | `l` / `h` / `w` | on a pod: **l**ogs, s**h**ell, for**w**ard a port (again: stop) |
 | `enter` | on a pod: logs; on a secret: open it |
+
+The keys on the selected row are **commands**. The config decides which
+commands each section offers and on which keys (see [Config](#config)). The
+ones above are the defaults. More exist than are bound by default:
+
+| command | sections | |
+|---|---|---|
+| `describe` | every | `kubectl describe` |
+| `yaml` | every | `kubectl get -o yaml`, without managedFields; secret values masked |
+| `logs` | pods | `kubectl logs -f --tail=500` of a container |
+| `previous-logs` | pods | `kubectl logs -p`: the run before the last restart |
+| `shell` | pods | `kubectl exec -it … sh` |
+| `forward` | pods | `kubectl port-forward` (again: stop) |
+| `open` | secrets | the keys, values masked until `r` |
 | `q` / `a` | scroll the change log up / down |
 | `Q` / `A` | move the divider up / down: a taller / shorter change log |
 | `esc` | back; on the main page: quit |
@@ -195,6 +209,27 @@ writes that file, comments and all, as your config. After that k7s rewrites
 the file whenever you toggle a section or state or switch namespace, so
 comments do not survive.
 
+The `commands` part binds commands to keys, per section; `"*"` is for every
+section, and several keys go in one string:
+
+```yaml
+commands:
+  "*":
+    describe: d
+    yaml: y               # not bound by default
+  pods:
+    logs: l enter
+    previous-logs: o      # not bound by default
+    shell: h
+    forward: w
+  secrets:
+    open: enter
+```
+
+A command a section does not list is not offered (`pods: {}` offers none).
+A section missing from `commands` gets its defaults. Page keys (`c n f`, the
+section keys, `q a Q A`, `j k G`, digits, `esc`) win over commands.
+
 Keys missing from your file take their defaults. `version` is the file format:
 older files are migrated, and a file from a newer k7s is used as far as
 understood but never overwritten. The version is bumped whenever a key is
@@ -211,16 +246,19 @@ internal/kube/             cluster access: clients, contexts, a generic watch,
 internal/resources/        the contract every kind implements
   resource.go              Resource (a section), Keyed, Stateful, Linker/Link, Host, Change
   row.go                   Column, Row, Cell + Tone — what to show, not how
-  steps.go                 what a key leads to: Picker, Viewer, Exec
+  command.go               Command (what a row can do) and its Target
+  steps.go                 what a command leads to: Picker, Viewer, Exec
+  commands/                commands for every kind: describe, yaml
   gitops/ deployments/ replicasets/ pods/ pvcs/ pvs/ secrets/
                            one folder per kind, each with
-                             resource.go  watch, state, change log, links, Actions
+                             resource.go  watch, state, change log, links
                              row.go       its columns and cells
-                             + kind-specific logic (e.g. pods: logs, forward)
+                             commands/    what its rows can do, one file each
+                                          (pods: logs, shell, forward; secrets: open)
   restest/                 a recording Host for testing kinds
 internal/tui/              everything drawn, the same way for every kind
-  app.go                   the registry of kinds, screens, navigation bar
-  page.go                  the page: sections, selection, # jump
+  app.go                   the registry of kinds and their commands, screens, navigation bar
+  page.go                  the page: sections, selection, # jump, commands bound by the config
   links.go                 the link view: what the selected row links to
   table.go                 row layout: widths, shrinking, truncation
   picker.go  viewer.go     the generic screens of Picker / Viewer steps
@@ -232,8 +270,10 @@ internal/tui/              everything drawn, the same way for every kind
 
 Adding a kind (deployments and replicasets were added this way) means a
 folder under `internal/resources` with `resource.go` and `row.go` and one
-line in the registry in `internal/tui/app.go`; its watch uses `kube.Watch`,
-its keys reuse the generic steps.
+line in the registry in `internal/tui/app.go`; its watch uses `kube.Watch`.
+Adding a command means a file in the kind's `commands/` folder (listed in its
+`All()`), and a key for it in `default.yaml` if it should be bound by
+default. Its steps (Picker, Viewer, Exec) are drawn by the tui.
 
 ## Build
 

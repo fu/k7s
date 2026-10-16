@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strconv"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,9 +12,9 @@ import (
 	"github.com/fu/k7s/internal/resources"
 )
 
-// Port-forwarding: w on a pod forwards one of its declared ports to
-// localhost (via a picker when it has several); w again stops it. Forwards
-// run in the background until stopped or k7s quits.
+// The port-forwards of pods: they run in the background until stopped or
+// k7s quits, show on their pod's row (⇄:port) and in the change log. The
+// forward command (commands/forward.go) starts and stops them.
 
 type (
 	fwdReadyMsg struct{ key string }
@@ -32,8 +31,8 @@ type forward struct {
 	ready         bool
 }
 
-// toggleForward stops a pod's forwards, or starts one.
-func (r *Resource) toggleForward(pod Row) resources.Step {
+// StopForwards ends a pod's forwards; it reports whether there were any.
+func (r *Resource) StopForwards(pod Row) bool {
 	stopped := false
 	for key, f := range r.forwards {
 		if f.pod.Key() == pod.Key() {
@@ -43,43 +42,16 @@ func (r *Resource) toggleForward(pod Row) resources.Step {
 			stopped = true
 		}
 	}
-	switch {
-	case stopped:
-	case len(pod.Ports) == 0:
-		r.host.Notice("pod " + pod.Name + " declares no TCP ports to forward")
-	case len(pod.Ports) == 1:
-		r.startForward(pod, pod.Ports[0])
-	default:
-		return r.portPicker(pod)
-	}
-	return nil
-}
-
-func (r *Resource) portPicker(pod Row) resources.Step {
-	p := &resources.Picker{
-		Title:   "forward which port of " + pod.Name + "?",
-		Columns: []resources.Column{{Title: "CONTAINER"}, {Title: "PORT", Right: true}, {Title: "NAME"}},
-		Hint:    "forward",
-	}
-	for i, port := range pod.Ports {
-		p.Rows = append(p.Rows, resources.Row{Key: strconv.Itoa(i), Cells: []resources.Cell{
-			{Text: port.Container}, {Text: fmt.Sprint(port.Number)}, {Text: port.Name, Tone: resources.Dim},
-		}})
-	}
-	p.Pick = func(key string) resources.Step {
-		if i, err := strconv.Atoi(key); err == nil && i < len(pod.Ports) {
-			r.startForward(pod, pod.Ports[i])
-		}
-		return nil
-	}
-	return p
+	return stopped
 }
 
 func (r *Resource) logForward(pod Row, detail string) {
 	r.host.Log(resources.Change{At: time.Now(), Kind: resources.Forward, Object: pod.Name, Detail: detail})
 }
 
-func (r *Resource) startForward(pod Row, p Port) {
+// StartForward forwards a free local port (the same number if free) to the
+// pod's port.
+func (r *Resource) StartForward(pod Row, p Port) {
 	local, err := kube.FreeLocalPort(p.Number)
 	if err != nil {
 		r.host.Notice("no free local port: " + err.Error())

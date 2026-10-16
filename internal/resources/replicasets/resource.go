@@ -61,9 +61,8 @@ func (r *Resource) Objects() []string { return []string{"ReplicaSet"} }
 func (r *Resource) GVR() schema.GroupVersionResource {
 	return appsv1.SchemeGroupVersion.WithResource("replicasets")
 }
-func (r *Resource) Available() bool                   { return true }
-func (r *Resource) Ready() bool                       { return r.synced }
-func (r *Resource) Actions(string) []resources.Action { return nil }
+func (r *Resource) Available() bool { return true }
+func (r *Resource) Ready() bool     { return r.synced }
 
 func (r *Resource) Start(h resources.Host) tea.Cmd {
 	r.Stop()

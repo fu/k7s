@@ -140,21 +140,17 @@ func (r *Resource) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-// Actions: logs, shell and port-forwarding of the selected pod.
-func (r *Resource) Actions(key string) []resources.Action {
+// Pod returns the current state of the pod with key, for commands.
+func (r *Resource) Pod(key string) (Row, bool) {
 	rs, ok := r.rows[key]
 	if !ok {
-		return nil
+		return Row{}, false
 	}
-	pod := rs.row
-	logs := func() resources.Step { return r.containers(pod, false) }
-	return []resources.Action{
-		{Key: "l", Hint: "[l]ogs", Do: logs},
-		{Key: "h", Hint: "s[h]ell", Do: func() resources.Step { return r.containers(pod, true) }},
-		{Key: "w", Hint: "for[w]ard", Do: func() resources.Step { return r.toggleForward(pod) }},
-		{Key: "enter", Do: logs},
-	}
+	return rs.row, true
 }
+
+// ContainerUsage returns the last metrics of a pod's containers by name.
+func (r *Resource) ContainerUsage(key string) map[string]Usage { return r.containerUsage[key] }
 
 // Listed returns the pods and the workloads running them.
 func (r *Resource) Listed() []resources.Ref {

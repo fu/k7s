@@ -23,18 +23,33 @@ import (
 	"github.com/fu/k7s/internal/resources/deployments"
 	"github.com/fu/k7s/internal/resources/gitops"
 	"github.com/fu/k7s/internal/resources/pods"
+	podcommands "github.com/fu/k7s/internal/resources/pods/commands"
 	"github.com/fu/k7s/internal/resources/pvcs"
 	"github.com/fu/k7s/internal/resources/pvs"
 	"github.com/fu/k7s/internal/resources/replicasets"
 	"github.com/fu/k7s/internal/resources/secrets"
+	secretcommands "github.com/fu/k7s/internal/resources/secrets/commands"
 )
 
-// registry lists the kinds in display order. Each name's first letter
-// toggles its section, so it must not clash with another key of the page.
+// registry lists the kinds in display order. Each name's first letter (or
+// the key it names) toggles its section, so it must not clash with another
+// key of the page.
 func registry() []resources.Resource {
 	return []resources.Resource{
 		gitops.New(), deployments.New(), replicasets.New(), pods.New(), pvcs.New(), pvs.New(), secrets.New(),
 	}
+}
+
+// kindCommands are a kind's own commands (its commands folder); those for
+// every kind come from resources/commands. The config binds them to keys.
+func kindCommands(kind string) []resources.Command {
+	switch kind {
+	case "pods":
+		return podcommands.All()
+	case "secrets":
+		return secretcommands.All()
+	}
+	return nil
 }
 
 // Info describes what is being watched.

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -22,7 +23,8 @@ import (
 //
 //	1  version, sections, namespaces, colors
 //	2  + hide
-const Version = 2
+//	3  + commands
+const Version = 3
 
 //go:embed default.yaml
 var defaultYAML []byte
@@ -32,6 +34,9 @@ type Config struct {
 	Sections Sections `yaml:"sections"`
 	// Hide lists, per kind, the row states not shown, e.g. pods: [completed].
 	Hide map[string][]string `yaml:"hide"`
+	// Commands are, per section ("*" for every section), the commands the
+	// selected row offers and their keys, e.g. pods: {shell: h, logs: l enter}.
+	Commands map[string]map[string]string `yaml:"commands"`
 	// Namespaces is the last namespace per context, used when -n is not given.
 	Namespaces map[string]string `yaml:"namespaces,omitempty"`
 	Colors     Colors            `yaml:"colors"`
@@ -114,15 +119,24 @@ func (c *Config) migrate() {
 		c.readOnly = true
 		return
 	}
-	if c.Version == 1 {
-		c.Version = 2 // hide is new; fill gives it its defaults
-	}
+	// Versions 2 and 3 only added keys; fill gives them their defaults.
+	c.Version = Version
 }
 
-// fill gives keys the file does not have their defaults.
+// fill gives keys the file does not have their defaults. A section missing
+// from commands gets its default commands (so a new section brings its
+// own); "pods: {}" means none.
 func (c *Config) fill(d *Config) {
 	if c.Hide == nil {
 		c.Hide = d.Hide
+	}
+	if c.Commands == nil {
+		c.Commands = map[string]map[string]string{}
+	}
+	for section, cmds := range d.Commands {
+		if _, ok := c.Commands[section]; !ok {
+			c.Commands[section] = cmds
+		}
 	}
 	for _, f := range []struct {
 		v *string
@@ -187,6 +201,20 @@ func (c *Config) SetStateHidden(kind, state string, hidden bool) {
 		c.Hide = map[string][]string{}
 	}
 	c.Hide[kind] = toggle(c.Hide[kind], state, hidden)
+}
+
+// CommandKeys returns the keys a section's command is bound to (none: not
+// offered); "*" applies to every section unless the section names the
+// command itself.
+func (c *Config) CommandKeys(section, command string) []string {
+	if c == nil {
+		return nil
+	}
+	keys, ok := c.Commands[section][command]
+	if !ok {
+		keys = c.Commands["*"][command]
+	}
+	return strings.Fields(keys)
 }
 
 // SetNamespace remembers the namespace last used in a context.

@@ -56,13 +56,12 @@ type rowState struct {
 	deletedAt time.Time
 }
 
-func (r *Resource) Name() string                      { return "volumes" }
-func (r *Resource) Tag() string                       { return "pv" }
-func (r *Resource) Objects() []string                 { return []string{"PersistentVolume"} }
-func (r *Resource) States() []string                  { return []string{"bound", "available", "released", "failed"} }
-func (r *Resource) Available() bool                   { return true }
-func (r *Resource) Ready() bool                       { return r.synced || r.err != nil }
-func (r *Resource) Actions(string) []resources.Action { return nil }
+func (r *Resource) Name() string      { return "volumes" }
+func (r *Resource) Tag() string       { return "pv" }
+func (r *Resource) Objects() []string { return []string{"PersistentVolume"} }
+func (r *Resource) States() []string  { return []string{"bound", "available", "released", "failed"} }
+func (r *Resource) Available() bool   { return true }
+func (r *Resource) Ready() bool       { return r.synced || r.err != nil }
 
 func (r *Resource) Start(h resources.Host) tea.Cmd {
 	r.Stop()

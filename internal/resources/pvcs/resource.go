@@ -63,9 +63,8 @@ func (r *Resource) States() []string  { return []string{"bound", "pending", "los
 func (r *Resource) GVR() schema.GroupVersionResource {
 	return corev1.SchemeGroupVersion.WithResource("persistentvolumeclaims")
 }
-func (r *Resource) Available() bool                   { return true }
-func (r *Resource) Ready() bool                       { return r.synced }
-func (r *Resource) Actions(string) []resources.Action { return nil }
+func (r *Resource) Available() bool { return true }
+func (r *Resource) Ready() bool     { return r.synced }
 
 func (r *Resource) Start(h resources.Host) tea.Cmd {
 	r.Stop()

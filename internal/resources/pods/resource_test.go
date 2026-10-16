@@ -92,20 +92,3 @@ func TestListedIncludesWorkloads(t *testing.T) {
 		t.Errorf("Listed() = %+v, want %+v", got, want)
 	}
 }
-
-func TestLogsOfAPodWithSeveralContainersAsksWhich(t *testing.T) {
-	r, _ := newTestResource()
-	pod := Row{Namespace: "ns", Name: "a", Containers: []Container{{Name: "init", Kind: KindInit}, {Name: "app"}, {Name: "proxy", Kind: KindSidecar}}}
-	p, ok := r.containers(pod, false).(*resources.Picker)
-	if !ok || len(p.Rows) != 3 || p.Current != "app" {
-		t.Fatalf("logs: want a picker over 3 containers starting on app, got %+v", p)
-	}
-	p, ok = r.containers(pod, true).(*resources.Picker)
-	if !ok || len(p.Rows) != 2 {
-		t.Fatalf("shell: init containers are not offered, got %+v", p)
-	}
-	single := Row{Namespace: "ns", Name: "b", Containers: []Container{{Name: "app"}}}
-	if _, ok := r.containers(single, false).(*resources.Viewer); !ok {
-		t.Error("a single container goes straight to its logs")
-	}
-}

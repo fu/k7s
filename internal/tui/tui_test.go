@@ -7,7 +7,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/charmbracelet/lipgloss"
+	"github.com/fu/k7s/internal/config"
 
 	"github.com/fu/k7s/internal/kube"
 	"github.com/fu/k7s/internal/resources"
@@ -126,8 +128,8 @@ func TestPageKeysAreUnique(t *testing.T) {
 	for _, s := range scopes {
 		use(s[:1], "menu "+s)
 	}
-	for _, k := range []string{"q", "a", "Q", "A", "j", "k", "G", "l", "h", "w", "d", "esc"} {
-		use(k, "page/action key")
+	for _, k := range []string{"q", "a", "Q", "A", "j", "k", "G", "esc"} {
+		use(k, "page key")
 	}
 	for _, k := range registry() {
 		key := toggleKey(k)
@@ -138,6 +140,54 @@ func TestPageKeysAreUnique(t *testing.T) {
 		if len(k.Tag()) > 3 {
 			t.Errorf("section %s: tag %q is longer than 3 letters", k.Name(), k.Tag())
 		}
+	}
+	// The default commands' keys must not be page keys (those would win);
+	// sections may reuse each other's command keys.
+	page := seen
+	for section, cmds := range config.Default().Commands {
+		used := map[string]string{}
+		for name, keys := range cmds {
+			for _, key := range strings.Fields(keys) {
+				if other, ok := page[key]; ok {
+					t.Errorf("command %s/%s: key %q is %s", section, name, key, other)
+				}
+				if other, ok := used[key]; ok {
+					t.Errorf("commands %s and %s of %s share key %q", other, name, section, key)
+				}
+				used[key] = name
+			}
+		}
+	}
+}
+
+func TestCommandsComeFromTheConfig(t *testing.T) {
+	pods := podKind{rows: []resources.Row{{Key: "ns/a", Ref: resources.Ref{Kind: "Pod", Namespace: "ns", Name: "a"}}}}
+	m := &model{kinds: []resources.Resource{pods}}
+	m.page.cfg, m.page.selected = config.Default(), "pods/ns/a"
+
+	var keys, hints []string
+	for _, a := range m.actions() {
+		keys = append(keys, a.key)
+		if a.hint != "" {
+			hints = append(hints, a.hint)
+		}
+	}
+	if got := strings.Join(keys, " "); got != "l enter h w d" {
+		t.Errorf("keys %q", got)
+	}
+	if got := strings.Join(hints, " "); got != "[l]ogs s[h]ell for[w]ard [d]escribe" {
+		t.Errorf("hints %q", got)
+	}
+
+	// Remapped: shell on x (not a letter of shell), previous-logs on p is
+	// not offered by default but can be.
+	m.page.cfg.Commands["pods"] = map[string]string{"shell": "x", "previous-logs": "o"}
+	hints = nil
+	for _, a := range m.actions() {
+		hints = append(hints, a.hint)
+	}
+	if got := strings.Join(hints, " "); got != "previ[o]us-logs [x] shell [d]escribe" {
+		t.Errorf("remapped hints %q", got)
 	}
 }
 

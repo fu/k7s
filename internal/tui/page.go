@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"slices"
@@ -13,11 +12,12 @@ import (
 
 	"github.com/fu/k7s/internal/config"
 	"github.com/fu/k7s/internal/resources"
+	"github.com/fu/k7s/internal/resources/commands"
 )
 
 // The page: a status line, a section per shown kind (title and table), the
-// change log and the navigation bar. One row is selected; its kind says
-// which keys it offers.
+// change log and the navigation bar. One row is selected; the commands the
+// config binds for its section are its keys.
 
 type page struct {
 	cfg      *config.Config // which sections and row states are hidden
@@ -98,39 +98,54 @@ func (m *model) selection() (resources.Resource, string) {
 	return nil, ""
 }
 
-// actions are the selected row's keys: its kind's, and d (describe) on
-// every row that shows an object.
-func (m *model) actions() []resources.Action {
+// action is a command bound to a key for the selected row.
+type action struct {
+	key  string
+	hint string // empty: bound but not shown (a second key, e.g. enter)
+	do   func() resources.Step
+}
+
+// actions are the selected row's commands the config offers, with their
+// keys: the kind's own commands, then those for every kind (only on rows
+// that show an object).
+func (m *model) actions() []action {
 	k, key := m.selection()
 	if k == nil {
 		return nil
 	}
-	actions := k.Actions(key)
+	var ref resources.Ref
 	for _, r := range m.rows(k) {
-		if r.Key == key && r.Ref.Kind != "" {
-			ref := r.Ref
-			actions = append(actions, resources.Action{Key: "d", Hint: "[d]escribe", Do: func() resources.Step { return m.describe(ref) }})
+		if r.Key == key {
+			ref = r.Ref
 		}
 	}
-	return actions
+	cmds := kindCommands(k.Name())
+	if ref.Kind != "" {
+		cmds = append(cmds, commands.All()...)
+	}
+	target := resources.Target{Host: kindHost{m, k}, Kind: k, Key: key, Ref: ref}
+	var out []action
+	for _, c := range cmds {
+		for i, keyName := range m.page.cfg.CommandKeys(k.Name(), c.Name) {
+			a := action{key: keyName, do: func() resources.Step { return c.Run(target) }}
+			if i == 0 {
+				a.hint = commandHint(c.Name, keyName)
+			}
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
-// describe shows "kubectl describe" of an object.
-func (m *model) describe(ref resources.Ref) resources.Step {
-	client := m.client
-	return &resources.Viewer{
-		Title: "describe " + strings.ToLower(ref.Kind) + " " + ref.Name,
-		Stream: func(ctx context.Context, emit func(resources.Line)) error {
-			out, err := client.Describe(ref.Kind, ref.Namespace, ref.Name)
-			if err != nil {
-				return err
-			}
-			for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-				emit(resources.Line{Text: strings.ReplaceAll(line, "\t", "    ")})
-			}
-			return nil
-		},
+// commandHint shows a command with its key: the key's letter in the name
+// ("s[h]ell"), else before it ("[x] shell", "[enter] open").
+func commandHint(name, key string) string {
+	if len(key) == 1 {
+		if i := strings.Index(name, key); i >= 0 {
+			return name[:i] + "[" + key + "]" + name[i+1:]
+		}
 	}
+	return "[" + key + "] " + name
 }
 
 func (m *model) moveSelection(delta int) {
@@ -172,8 +187,8 @@ func (m *model) pageKey(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 	for _, a := range m.actions() {
-		if a.Key == key {
-			cmd, _ := m.follow(a.Do())
+		if a.key == key {
+			cmd, _ := m.follow(a.do())
 			return cmd
 		}
 	}
@@ -325,8 +340,8 @@ func (m *model) pageView() string {
 
 	var cmds []string
 	for _, a := range m.actions() {
-		if a.Hint != "" {
-			cmds = append(cmds, a.Hint)
+		if a.hint != "" {
+			cmds = append(cmds, a.hint)
 		}
 	}
 	cmds = append(cmds, "[q/a] changes", "[Q/A] resize", "[esc] quit")

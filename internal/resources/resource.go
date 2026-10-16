@@ -2,12 +2,12 @@
 // kinds themselves are its sub folders (pods, secrets, gitops, …).
 //
 // A kind watches its objects in the current namespace (and filter) and says
-//   - what a row shows (row.go: columns and cells with a tone — no styling),
-//   - which keys the selected row offers (Actions),
-//   - and what each key does: open a Picker, a Viewer or an Exec (steps.go).
+// what a row shows (row.go: columns and cells with a tone — no styling).
+// What a row can do are Commands (command.go), in the kind's commands
+// folder; each leads to a Picker, a Viewer or an Exec (steps.go).
 //
 // The tui draws all of it the same way for every kind. Adding a kind means
-// adding a folder and listing it in the tui registry.
+// adding a folder and listing it (with its commands) in the tui registry.
 package resources
 
 import (
@@ -20,8 +20,8 @@ import (
 	"github.com/fu/k7s/internal/kube"
 )
 
-// Resource is one kind on the page: a section with a table, the keys its
-// selected row offers and the watch that keeps it current.
+// Resource is one kind on the page: a section with a table and the watch
+// that keeps it current.
 type Resource interface {
 	// Name is the section title and menu entry; its first letter toggles it
 	// (or the key a Keyed kind names).
@@ -50,8 +50,6 @@ type Resource interface {
 	// Status is its part of the status line (none if empty).
 	Status() []Cell
 
-	// Actions are the keys the row with key offers.
-	Actions(key string) []Action
 	// Listed returns the objects the section shows (and their owners, such
 	// as a pod's Deployment), so other kinds can relate to them.
 	Listed() []Ref
