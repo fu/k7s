@@ -98,7 +98,7 @@ func (r *Resource) Start(h resources.Host) tea.Cmd {
 	r.respAt = time.Time{}
 	if h.Client() == r.client {
 		if r.synced {
-			r.logInitialProblems()
+			return r.logInitialProblems()
 		}
 		return nil
 	}
@@ -140,12 +140,16 @@ func (r *Resource) Update(msg tea.Msg) tea.Cmd {
 		}
 	case appMsg:
 		if msg.gen == r.gen {
-			r.apply(msg.ev)
+			return r.apply(msg.ev)
 		}
 	case syncedMsg:
 		if msg.gen == r.gen && !r.synced {
 			r.synced = true
-			r.logInitialProblems()
+			return r.logInitialProblems()
+		}
+	case explainedMsg:
+		if msg.gen == r.gen {
+			r.log(msg.at, msg.kind, msg.app, msg.detail, msg.items...)
 		}
 	case errMsg:
 		if msg.gen == r.gen {
@@ -228,7 +232,7 @@ func (r *Resource) Status() []resources.Cell {
 
 // ---- state and change log ------------------------------------------------------
 
-func (r *Resource) apply(e Event) {
+func (r *Resource) apply(e Event) tea.Cmd {
 	now := time.Now()
 	key := e.App.Key()
 	row, exists := r.rows[key]
@@ -285,17 +289,24 @@ func (r *Resource) apply(e Event) {
 		}
 		row.app = a
 		details = slices.DeleteFunc(details, func(s string) bool { return s == "" })
-		if len(details) > 0 || len(items) > 0 {
+		switch {
+		case a.Overall() > old.Overall():
+			// It got worse: find out why if Argo CD / Flux does not say.
+			r.resort()
+			return r.explain(now, resources.Modified, a, strings.Join(details, ", "), items)
+		case len(details) > 0 || len(items) > 0:
 			r.log(now, resources.Modified, a, strings.Join(details, ", "), items...)
 		}
 	}
 	r.resort()
+	return nil
 }
 
 // logInitialProblems explains every app that is not green: why, and every
 // resource that is not healthy or not in sync.
-func (r *Resource) logInitialProblems() {
+func (r *Resource) logInitialProblems() tea.Cmd {
 	now := time.Now()
+	var cmds []tea.Cmd
 	for _, k := range r.order {
 		if row := r.rows[k]; row.app.Overall() != Green && row.deletedAt.IsZero() {
 			a := row.app
@@ -303,8 +314,48 @@ func (r *Resource) logInitialProblems() {
 			if why == "" {
 				why = strings.ToLower(a.Sync + ", " + a.Health)
 			}
-			r.log(now, resources.State, a, why, a.Problems...)
+			cmds = append(cmds, r.explain(now, resources.State, a, why, nil))
 		}
+	}
+	return tea.Batch(cmds...)
+}
+
+// explainedMsg brings an app change back with its diagnosis.
+type explainedMsg struct {
+	gen    int
+	at     time.Time
+	kind   resources.ChangeKind
+	app    App
+	detail string
+	items  []string
+}
+
+// explain logs a change of an app that is not green with everything that
+// says why: the problem resources Argo CD / Flux list, and what k7s finds
+// looking at what the app manages itself (child apps, workloads, their
+// failing pods) — Argo CD 3 keeps resource health elsewhere, so its list is
+// often empty. The entry is logged once that look is done.
+func (r *Resource) explain(at time.Time, kind resources.ChangeKind, a App, detail string, items []string) tea.Cmd {
+	add := func(list []string) {
+		for _, p := range list {
+			if !slices.Contains(items, p) {
+				items = append(items, p)
+			}
+		}
+	}
+	add(a.Problems)
+	if a.Overall() == Green {
+		r.log(at, kind, a, detail, items...)
+		return nil
+	}
+	gen, ctx, client := r.gen, r.host.Context(), r.client
+	apps, _ := r.apps()
+	return func() tea.Msg {
+		add(diagnose(ctx, client, a, apps))
+		if len(items) == 0 {
+			items = []string{"no reason given, and none of its workloads or child apps looks unhealthy"}
+		}
+		return explainedMsg{gen, at, kind, a, detail, items}
 	}
 }
 

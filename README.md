@@ -130,8 +130,13 @@ It records:
 - pod adds/deletes and status, ready and restart changes; container exits are
   explained (`exit OOMKilled(137) — out of memory, hit its memory limit`)
 - secrets added, deleted and updated
-- sync / health / revision changes of the responsible apps (with every
-  degraded or out-of-sync resource on its own line)
+- sync / health / revision changes of the responsible apps, and why an
+  app is not green, one line each: the resources Argo CD / Flux list, plus
+  what k7s finds itself in what the app manages (Argo CD 3 no longer keeps
+  resource health in the Application). k7s looks for child apps that are
+  not green, Deployments, StatefulSets, DaemonSets and Jobs that are not
+  available, with their failing pods and why (CrashLoopBackOff, a missing
+  secret, …), and claims that are not bound.
 - all Kubernetes events of the namespace — warnings (failed probes,
   scheduling, mounts…) and normal ones (scaling, rollouts, pulls, kills)
 - at start: the events Kubernetes still keeps (about the last hour), so you
