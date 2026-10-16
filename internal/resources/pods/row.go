@@ -75,7 +75,7 @@ func (r *Resource) row(rs *rowState, now time.Time) resources.Row {
 		}
 	}
 
-	row := resources.Row{Key: p.Key(), Struck: !rs.deletedAt.IsZero()}
+	row := resources.Row{Key: p.Key(), Ref: p.ref(), Struck: !rs.deletedAt.IsZero()}
 	for _, c := range columns {
 		cell, ok := cells[c.Title]
 		if !ok {

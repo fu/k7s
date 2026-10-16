@@ -6,12 +6,14 @@
 //	watch.go     the pod watch and the metrics poll
 //	resource.go  state, change log, actions
 //	row.go       what a row shows
+//	links.go     workload → pod → secrets, for the link highlighting
 //	logs.go      logs and shell of a container
 //	forward.go   port-forwarding
 package pods
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -38,6 +40,9 @@ type Row struct {
 	// The workload that runs the pod, e.g. Deployment "web" (via its
 	// ReplicaSet), StatefulSet "db"; empty for bare pods.
 	WorkloadKind, WorkloadName string
+
+	// Secrets the pod uses: volumes, env, envFrom, image pull secrets.
+	Secrets []string
 
 	// Most recent non-clean container exit, and which container it was.
 	LastExit          Termination
@@ -135,7 +140,53 @@ func FromPod(pod *corev1.Pod) Row {
 		}
 	}
 	r.WorkloadKind, r.WorkloadName = workload(pod)
+	r.Secrets = secretsUsed(pod)
 	return r
+}
+
+// secretsUsed lists the secrets a pod mounts, reads into its environment or
+// pulls images with, sorted.
+func secretsUsed(pod *corev1.Pod) []string {
+	seen := map[string]bool{}
+	add := func(name string) {
+		if name != "" {
+			seen[name] = true
+		}
+	}
+	for _, v := range pod.Spec.Volumes {
+		if v.Secret != nil {
+			add(v.Secret.SecretName)
+		}
+		if v.Projected != nil {
+			for _, s := range v.Projected.Sources {
+				if s.Secret != nil {
+					add(s.Secret.Name)
+				}
+			}
+		}
+	}
+	containers := append(append([]corev1.Container{}, pod.Spec.InitContainers...), pod.Spec.Containers...)
+	for _, c := range containers {
+		for _, e := range c.Env {
+			if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
+				add(e.ValueFrom.SecretKeyRef.Name)
+			}
+		}
+		for _, e := range c.EnvFrom {
+			if e.SecretRef != nil {
+				add(e.SecretRef.Name)
+			}
+		}
+	}
+	for _, s := range pod.Spec.ImagePullSecrets {
+		add(s.Name)
+	}
+	out := make([]string, 0, len(seen))
+	for s := range seen {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // workload finds the controller owning a pod. A ReplicaSet created by a

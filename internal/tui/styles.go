@@ -24,6 +24,7 @@ var (
 	menu       = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("236"))
 	menuActive = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("6"))
 	selectedBG = lipgloss.Color("237")
+	linkedBG   = lipgloss.Color("23") // dark teal: linked to the selected row
 )
 
 // style is the color of a tone.

@@ -17,7 +17,8 @@ import (
 type table struct {
 	cols   []resources.Column
 	rows   []resources.Row
-	number bool // prepend the # column
+	number bool                   // prepend the # column
+	linked map[resources.Ref]bool // rows linked to the selected one, tinted
 }
 
 const sep = "  "
@@ -53,9 +54,16 @@ func (t table) lines(selected string, width int) (string, []string) {
 	}
 	out := make([]string, len(rows))
 	for i, r := range rows {
-		out[i] = t.line(cols, widths, shown, r.Cells, r.Struck, r.Key == selected, width)
+		var bg lipgloss.TerminalColor
+		switch {
+		case r.Key == selected:
+			bg = selectedBG
+		case t.linked[r.Ref]:
+			bg = linkedBG
+		}
+		out[i] = t.line(cols, widths, shown, r.Cells, r.Struck, bg, width)
 	}
-	return t.line(cols, widths, shown, hdr, false, false, width), out
+	return t.line(cols, widths, shown, hdr, false, nil, width), out
 }
 
 // fit makes the columns fit width: shrink the shrinkable ones (to 32 cells),
@@ -100,7 +108,8 @@ func fit(cols []resources.Column, widths []int, width int) []bool {
 	return shown
 }
 
-func (t table) line(cols []resources.Column, widths []int, shown []bool, cs []resources.Cell, isStruck, selected bool, width int) string {
+// line renders one row; bg (selected or linked) fills the whole line.
+func (t table) line(cols []resources.Column, widths []int, shown []bool, cs []resources.Cell, isStruck bool, bg lipgloss.TerminalColor, width int) string {
 	var parts []string
 	for i, c := range cols {
 		if !shown[i] {
@@ -118,20 +127,18 @@ func (t table) line(cols []resources.Column, widths []int, shown []bool, cs []re
 		if isStruck {
 			st = struck
 		}
-		if selected {
-			st = st.Background(selectedBG)
+		if bg != nil {
+			st = st.Background(bg)
 		}
 		parts = append(parts, st.Render(pad(text, widths[i], c.Right)))
 	}
-	gap := sep
-	if selected {
-		gap = lipgloss.NewStyle().Background(selectedBG).Render(sep)
+	if bg == nil {
+		return clip(strings.Join(parts, sep), width)
 	}
-	line := clip(strings.Join(parts, gap), width)
-	if selected {
-		if rest := width - lipgloss.Width(line); rest > 0 {
-			line += lipgloss.NewStyle().Background(selectedBG).Render(strings.Repeat(" ", rest))
-		}
+	fill := lipgloss.NewStyle().Background(bg)
+	line := clip(strings.Join(parts, fill.Render(sep)), width)
+	if rest := width - lipgloss.Width(line); rest > 0 {
+		line += fill.Render(strings.Repeat(" ", rest))
 	}
 	return line
 }

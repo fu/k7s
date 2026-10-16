@@ -56,6 +56,19 @@ type Labeled interface {
 	GVR() schema.GroupVersionResource
 }
 
+// Linker is a kind whose objects lead to others: an app deploys a
+// Deployment, a Deployment runs a pod, a pod uses a secret. Selecting a row
+// highlights every row linked to it, both ways and across kinds.
+type Linker interface {
+	Links() []Link
+}
+
+// Link says From leads to To. Either end may be an object no section shows
+// (such as a Deployment); links still pass through it.
+type Link struct {
+	From, To Ref
+}
+
 // Host is what a kind gets from the app.
 type Host interface {
 	Context() context.Context // ends when k7s quits; Start derives its own per scope

@@ -159,7 +159,7 @@ func (r *Resource) Listed() []resources.Ref {
 	var out []resources.Ref
 	for _, k := range r.order {
 		p := r.rows[k].row
-		out = append(out, resources.Ref{Kind: "Pod", Namespace: p.Namespace, Name: p.Name})
+		out = append(out, p.ref())
 		if p.WorkloadKind != "" {
 			out = append(out, resources.Ref{Kind: p.WorkloadKind, Namespace: p.Namespace, Name: p.WorkloadName})
 		}

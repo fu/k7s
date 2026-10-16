@@ -73,6 +73,14 @@ secrets (2)
    with the values masked; `r` reveals them. Values are only fetched for the
    opened secret, never kept in the list.
 
+**Links**: the selected row lights up (dark teal) everything linked to it,
+across sections. Select an app to see the pods it deploys and the secrets
+those pods use. Select a pod to see its app and its secrets. Select a
+secret to see which pods use it and which app deploys them. Pods count as
+"used by" a secret through volumes, `env`/`envFrom` and image pull secrets;
+pods belong to an app through their workload (Deployment, StatefulSet,
+CronJob/ScaledJob jobs, …).
+
 The status line has one **gitops light**: the worst of the responsible apps
 and their parents, so green pods under a broken deployment chain do not
 look fine. The cyan "watching" dot breathes once per metrics refresh.
@@ -126,7 +134,7 @@ cmd/                       CLI: k7s [-n] [-l] [--once]
 internal/kube/             cluster access: clients, contexts, exec, port-forward,
                            events, value formatting (CPU, MEM, age)
 internal/resources/        the contract every kind implements
-  resource.go              Resource (a section), Host, Change (change log)
+  resource.go              Resource (a section), Linker/Link, Host, Change (change log)
   row.go                   Column, Row, Cell + Tone — what to show, not how
   steps.go                 what a key leads to: Picker, Viewer, Exec
   pods/  secrets/  gitops/ one folder per kind, each with
@@ -136,6 +144,7 @@ internal/resources/        the contract every kind implements
 internal/tui/              everything drawn, the same way for every kind
   app.go                   the registry of kinds, screens, navigation bar
   page.go                  the page: sections, selection, # jump
+  links.go                 the link view: what the selected row links to
   table.go                 row layout: widths, shrinking, truncation
   picker.go  viewer.go     the generic screens of Picker / Viewer steps
   terminal.go              Exec steps: terminal hand-over (+ size queue)

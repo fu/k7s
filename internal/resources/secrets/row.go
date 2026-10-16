@@ -21,7 +21,7 @@ func (r *Resource) Rows() []resources.Row {
 	out := make([]resources.Row, len(r.order))
 	for i, k := range r.order {
 		s := r.rows[k]
-		out[i] = resources.Row{Key: k, Cells: []resources.Cell{
+		out[i] = resources.Row{Key: k, Ref: resources.Ref{Kind: "Secret", Namespace: s.Namespace, Name: s.Name}, Cells: []resources.Cell{
 			{Text: s.Name},
 			{Text: s.Type, Tone: resources.Dim},
 			{Text: fmt.Sprint(s.Keys)},

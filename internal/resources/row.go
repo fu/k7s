@@ -17,6 +17,7 @@ type Column struct {
 // Row is one table row.
 type Row struct {
 	Key    string
+	Ref    Ref    // the object it shows, for following links
 	Cells  []Cell // one per column
 	Struck bool   // deleted, lingering for a moment
 }

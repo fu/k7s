@@ -20,12 +20,13 @@ import (
 type page struct {
 	hidden   map[string]bool
 	selected string // "<kind>/<row key>"
+	moved    bool   // the user moved the selection; until then it stays on the top row
 	offset   int    // first visible body line
 	jumpBuf  string
 	jumpAt   time.Time
 }
 
-func (p *page) reset() { p.selected, p.offset, p.jumpBuf = "", 0, "" }
+func (p *page) reset() { p.selected, p.moved, p.offset, p.jumpBuf = "", false, 0, "" }
 
 func (p *page) shown(k resources.Resource) bool { return !p.hidden[k.Name()] }
 
@@ -90,7 +91,7 @@ func (m *model) moveSelection(delta int) {
 		return
 	}
 	i := max(0, slices.Index(entries, m.page.selected))
-	m.page.selected = entries[clamp(i, delta, len(entries))]
+	m.page.selected, m.page.moved = entries[clamp(i, delta, len(entries))], true
 }
 
 func (m *model) pageKey(msg tea.KeyMsg) tea.Cmd {
@@ -108,7 +109,7 @@ func (m *model) pageKey(msg tea.KeyMsg) tea.Cmd {
 		if k, _ := m.selection(); k != nil {
 			ks := keys(k.Rows())
 			if n := typeNumber(&m.page.jumpBuf, &m.page.jumpAt, key); n >= 1 && n <= len(ks) {
-				m.page.selected = k.Name() + "/" + ks[n-1]
+				m.page.selected, m.page.moved = k.Name()+"/"+ks[n-1], true
 			}
 		}
 		return nil
@@ -191,10 +192,23 @@ func (m *model) pageView() string {
 	b.WriteString("\n\n")
 
 	entries := m.entries()
-	if !slices.Contains(entries, m.page.selected) && len(entries) > 0 {
+	if (!m.page.moved || !slices.Contains(entries, m.page.selected)) && len(entries) > 0 {
 		m.page.selected = entries[0]
 	}
 	selName, selKey, _ := strings.Cut(m.page.selected, "/")
+
+	// What the selected row links to, in any section.
+	var selRef resources.Ref
+	for _, k := range m.sections() {
+		if k.Name() == selName {
+			for _, r := range k.Rows() {
+				if r.Key == selKey {
+					selRef = r.Ref
+				}
+			}
+		}
+	}
+	links := linked(selRef, m.pageLinks())
 
 	// Every shown section's lines, remembering where the selected row is.
 	var lines []string
@@ -216,7 +230,7 @@ func (m *model) pageView() string {
 				selLine = len(lines) + 1 + i
 			}
 		}
-		hdr, body := table{cols: k.Columns(), rows: rows, number: true}.lines(sel, m.width)
+		hdr, body := table{cols: k.Columns(), rows: rows, number: true, linked: links}.lines(sel, m.width)
 		lines = append(lines, hdr)
 		lines = append(lines, body...)
 	}

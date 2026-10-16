@@ -63,7 +63,23 @@ func (r *Resource) Rows() []resources.Row {
 		if r.engine == Flux {
 			cells = slices.Insert(cells, 2, resources.Cell{Text: a.Kind, Tone: resources.Dim})
 		}
-		out = append(out, resources.Row{Key: k, Cells: cells, Struck: !row.deletedAt.IsZero()})
+		out = append(out, resources.Row{Key: k, Ref: a.ref(), Cells: cells, Struck: !row.deletedAt.IsZero()})
+	}
+	return out
+}
+
+func (a App) ref() resources.Ref {
+	return resources.Ref{Kind: a.Kind, Namespace: a.Namespace, Name: a.Name}
+}
+
+// Links: an app deploys what it manages (Deployments, secrets, other apps).
+func (r *Resource) Links() []resources.Link {
+	var out []resources.Link
+	for _, k := range r.responsible() {
+		a := r.rows[k].app
+		for _, m := range a.Manages {
+			out = append(out, resources.Link{From: a.ref(), To: resources.Ref(m)})
+		}
 	}
 	return out
 }
