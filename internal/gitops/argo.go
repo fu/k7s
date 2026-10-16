@@ -92,6 +92,8 @@ func fromArgo(u *unstructured.Unstructured) App {
 		}
 		kind, _ := m["kind"].(string)
 		name, _ := m["name"].(string)
+		ns, _ := m["namespace"].(string)
+		a.Manages = append(a.Manages, Ref{Kind: kind, Namespace: ns, Name: name})
 		syncStatus, _ := m["status"].(string)
 		var hs, hmsg string
 		if h, ok := m["health"].(map[string]any); ok {

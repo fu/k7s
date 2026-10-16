@@ -84,8 +84,17 @@ s`h`ell, for`w`ard, `r`eveal …; keys that are not letters are shown in front).
 - `esc` goes back; on the pods screen it quits.
 
 **Overview (`o`, or `k7s all`)** stacks the views of one namespace on one
-page: the pods table, then the secrets table — exactly the rows of their own
-screens — with the pods change log underneath. The filter (`f`) narrows it to
+page — exactly the rows of their own screens — with one merged change log:
+
+1. **gitops**: only the apps responsible for what is listed: those deploying
+   a listed secret or the workload (Deployment, StatefulSet, …) of a listed
+   pod, read from Argo CD's managed resources / Flux's inventory. Without a
+   filter, every app deploying into the namespace.
+2. **pods**, then 3. **secrets**.
+
+The header shows one gitops light: the worst of the responsible apps *and
+the apps that deploy them* (app of apps), so green pods under a broken
+deployment chain do not look fine. The filter (`f`) narrows everything to
 one app. Pod rows support logs, shell and forward; enter on a secret opens
 it. It never spans all namespaces. (`k7s get all` is refused on purpose:
 kubectl's `get all` means something else.)
@@ -98,7 +107,8 @@ never kept in the list.
 **GitOps (`g`)** sits next to pods. It detects the engine and lists every
 Argo CD Application of the cluster with two lights — SYNC (green Synced, amber
 OutOfSync, red failed sync) and HEALTH (green Healthy, amber Progressing,
-red Degraded/Missing) — plus target namespace, source, revision and last
+red Degraded/Missing) — plus target namespace, PARENT (the app that deploys
+it, colored by the worst light up that chain), source, revision and last
 sync. Apps deploying into your namespace are highlighted. The change log
 explains apps that are not green (auto-sync off, failed sync message, which
 resources are degraded/out of sync) and shows sync/health/revision changes

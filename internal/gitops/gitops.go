@@ -86,6 +86,52 @@ type App struct {
 	Revision        string   // short commit or chart version
 	Why             []string // short reasons, e.g. "auto-sync off"
 	Problems        []string // every resource that is unhealthy or out of sync
+	Manages         []Ref    // the objects it deploys (Argo status.resources, Flux inventory)
+}
+
+// Ref names one Kubernetes object.
+type Ref struct {
+	Kind, Namespace, Name string
+}
+
+// ManagesRef reports whether the app deploys the object.
+func (a App) ManagesRef(r Ref) bool {
+	for _, m := range a.Manages {
+		if m == r {
+			return true
+		}
+	}
+	return false
+}
+
+// Parents maps each app to the app that deploys it ("app of apps"), by
+// finding apps whose managed objects include another app.
+func Parents(apps map[string]App) map[string]string {
+	byRef := map[Ref]string{}
+	for key, a := range apps {
+		byRef[Ref{Kind: a.Kind, Namespace: a.Namespace, Name: a.Name}] = key
+	}
+	parents := map[string]string{}
+	for key, a := range apps {
+		for _, m := range a.Manages {
+			if child, ok := byRef[m]; ok && child != key {
+				parents[child] = key
+			}
+		}
+	}
+	return parents
+}
+
+// ChainLight is the worst light of an app's parents, up the chain (Grey
+// when it has no parent).
+func ChainLight(key string, apps map[string]App, parents map[string]string) Light {
+	worst := Grey
+	seen := map[string]bool{key: true}
+	for p, ok := parents[key]; ok && !seen[p]; p, ok = parents[p] {
+		seen[p] = true
+		worst = max(worst, apps[p].Overall())
+	}
+	return worst
 }
 
 func (a App) Key() string        { return a.Kind + "/" + a.Namespace + "/" + a.Name }

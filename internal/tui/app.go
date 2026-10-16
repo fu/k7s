@@ -206,7 +206,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tickMsg:
 		m.pods.purgeDeleted()
-		if m.screen == screenGitOps {
+		if m.screen == screenGitOps || m.screen == screenOverview {
 			m.gitops.resort() // drops deleted apps after a while
 		}
 		return m, tick()

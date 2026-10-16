@@ -73,15 +73,21 @@ type gitopsState struct {
 	errAt       time.Time
 }
 
-// openGitOps detects the engine of the current context and starts watching.
+// openGitOps shows the gitops view.
 func (m *model) openGitOps() tea.Cmd {
+	m.screen, m.lastView = screenGitOps, screenGitOps
+	return m.startGitOps()
+}
+
+// startGitOps detects the engine of the current context and starts
+// watching; the gitops view and the overview both use it.
+func (m *model) startGitOps() tea.Cmd {
 	g := &m.gitops
 	if g.cancel != nil {
 		g.cancel()
 	}
 	gen := g.gen + 1
 	*g = gitopsState{gen: gen, rows: map[string]*appRow{}}
-	m.screen, m.lastView = screenGitOps, screenGitOps
 	client := m.client
 	return func() tea.Msg { return gitopsDetectedMsg{gen, gitops.Detect(client)} }
 }
@@ -92,7 +98,17 @@ func (m *model) closeGitOps() {
 		g.cancel()
 	}
 	g.gen++
-	m.screen = screenPods
+}
+
+// apps returns the current apps by key, and which app deploys which.
+func (g *gitopsState) apps() (map[string]gitops.App, map[string]string) {
+	apps := make(map[string]gitops.App, len(g.rows))
+	for k, row := range g.rows {
+		if row.deletedAt.IsZero() {
+			apps[k] = row.app
+		}
+	}
+	return apps, gitops.Parents(apps)
 }
 
 func (m *model) gitopsMsg(msg tea.Msg) {
@@ -245,7 +261,7 @@ func (m *model) gitopsKey(msg tea.KeyMsg) tea.Cmd {
 	switch key {
 	case "esc":
 		m.closeGitOps()
-		m.lastView = screenPods
+		m.screen, m.lastView = screenPods, screenPods
 	case "up", "k":
 		g.move(-1)
 	case "down", "j":
@@ -298,21 +314,37 @@ func (m *model) gitopsView() string {
 		return b.String() + m.footer("[esc] back")
 	}
 
+	b.WriteString(m.gitopsTable(g.order).render(g.cursor, &g.offset, l.tableRows+1, m.width))
+
+	b.WriteString(m.changesPane(l.eventLines, len(g.events), &g.changesBack,
+		func(i int) string { return m.appEventView(g.events[i]) },
+		"no changes yet — sync, health and revision changes appear here"))
+	b.WriteString(m.footer(jumpOr(g.jumpBuf, g.jumpAt, "[q/a] changes  [esc] back")))
+	return b.String()
+}
+
+// gitopsTable is the apps table for the given app keys; the gitops screen
+// and the overview both use it. PARENT shows the app that deploys this one,
+// colored by the worst light up that chain, so a green app under a broken
+// parent does not look fine.
+func (m *model) gitopsTable(keys []string) table {
+	g := &m.gitops
+	apps, parents := g.apps()
 	// Flux mixes Kustomizations and HelmReleases, so it gets a KIND column.
 	flux := g.engine == gitops.Flux
 	t := table{
-		headers: []string{"#", "SYNC", "HEALTH", "NAME", "DEST", "SOURCE", "REV", "SYNCED"},
-		right:   []bool{true, false, false, false, false, false, false, false},
-		flex:    5,
+		headers: []string{"#", "SYNC", "HEALTH", "NAME", "DEST", "PARENT", "SOURCE", "REV", "SYNCED"},
+		right:   []bool{true, false, false, false, false, false, false, false, false},
+		flex:    6,
 	}
 	if flux {
 		t.headers = slices.Insert(t.headers, 3, "KIND")
 		t.right = slices.Insert(t.right, 3, false)
-		t.flex = 6
+		t.flex = 7
 	}
 	now := time.Now()
 	here := !m.info.AllNamespaces
-	for i, k := range g.order {
+	for i, k := range keys {
 		row := g.rows[k]
 		a := row.app
 		sync := cell{text: "●", style: lightStyle(a.SyncLight())}
@@ -331,9 +363,13 @@ func (m *model) gitopsView() string {
 		if !a.SyncedAt.IsZero() {
 			synced = cell{text: pods.Age(a.SyncedAt), style: stDim}
 		}
+		parent := cell{}
+		if p, ok := parents[k]; ok {
+			parent = cell{text: "● " + apps[p].Name, style: lightStyle(gitops.ChainLight(k, apps, parents)), middle: true}
+		}
 		cells := []cell{
 			{text: fmt.Sprint(i + 1), style: stDim},
-			sync, health, name, dest,
+			sync, health, name, dest, parent,
 			{text: a.Source, style: stDim, middle: true},
 			{text: a.Revision, style: stDim},
 			synced,
@@ -348,13 +384,7 @@ func (m *model) gitopsView() string {
 		}
 		t.rows = append(t.rows, cells)
 	}
-	b.WriteString(t.render(g.cursor, &g.offset, l.tableRows+1, m.width))
-
-	b.WriteString(m.changesPane(l.eventLines, len(g.events), &g.changesBack,
-		func(i int) string { return m.appEventView(g.events[i]) },
-		"no changes yet — sync, health and revision changes appear here"))
-	b.WriteString(m.footer(jumpOr(g.jumpBuf, g.jumpAt, "[q/a] changes  [esc] back")))
-	return b.String()
+	return t
 }
 
 func (m *model) gitopsStatusLine() string {

@@ -1,6 +1,7 @@
 package gitops
 
 import (
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -78,6 +79,16 @@ func fromKustomization(u *unstructured.Unstructured) App {
 	a.Source = describeSource(srcName, dir, "")
 	rev, _, _ := unstructured.NestedString(o, "status", "lastAppliedRevision")
 	a.Revision = shortRevision(rev)
+
+	// What it applied: status.inventory ids are "<ns>_<name>_<group>_<kind>".
+	entries, _, _ := unstructured.NestedSlice(o, "status", "inventory", "entries")
+	for _, e := range entries {
+		m, _ := e.(map[string]any)
+		id, _ := m["id"].(string)
+		if p := strings.Split(id, "_"); len(p) == 4 {
+			a.Manages = append(a.Manages, Ref{Kind: p[3], Namespace: p[0], Name: p[1]})
+		}
+	}
 
 	// HEALTH: the Healthy condition (set when health checks / wait are on),
 	// otherwise "applied fine" counts as healthy.

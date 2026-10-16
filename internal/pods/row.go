@@ -24,6 +24,10 @@ type Row struct {
 	Containers  []Container // init and sidecar containers first, in spec order
 	Ports       []Port      // declared TCP container ports, for port-forwarding
 
+	// The workload that runs the pod, e.g. Deployment "web" (via its
+	// ReplicaSet), StatefulSet "db"; empty for bare pods.
+	WorkloadKind, WorkloadName string
+
 	// Most recent non-clean container exit, and which container it was.
 	LastExit          Termination
 	LastExitContainer string
@@ -111,7 +115,24 @@ func FromPod(pod *corev1.Pod) Row {
 			r.LastExit, r.LastExitContainer = c.Last, c.Name
 		}
 	}
+	r.WorkloadKind, r.WorkloadName = workload(pod)
 	return r
+}
+
+// workload finds the controller owning a pod. A ReplicaSet created by a
+// Deployment is named "<deployment>-<pod-template-hash>", so the Deployment
+// is derived from it without another API call.
+func workload(pod *corev1.Pod) (string, string) {
+	for _, o := range pod.OwnerReferences {
+		if o.Controller == nil || !*o.Controller {
+			continue
+		}
+		if h := pod.Labels["pod-template-hash"]; o.Kind == "ReplicaSet" && h != "" && strings.HasSuffix(o.Name, "-"+h) {
+			return "Deployment", strings.TrimSuffix(o.Name, "-"+h)
+		}
+		return o.Kind, o.Name
+	}
+	return "", ""
 }
 
 // Termination describes how a container last stopped.
