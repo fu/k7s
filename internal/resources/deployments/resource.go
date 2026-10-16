@@ -57,6 +57,7 @@ type rowState struct {
 }
 
 func (r *Resource) Name() string      { return "deployments" }
+func (r *Resource) Key() string       { return "e" } // d is describe
 func (r *Resource) Tag() string       { return "dp" }
 func (r *Resource) Objects() []string { return []string{"Deployment"} }
 func (r *Resource) GVR() schema.GroupVersionResource {

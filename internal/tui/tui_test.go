@@ -126,7 +126,7 @@ func TestPageKeysAreUnique(t *testing.T) {
 	for _, s := range scopes {
 		use(s[:1], "menu "+s)
 	}
-	for _, k := range []string{"q", "a", "Q", "A", "j", "k", "G", "l", "h", "w", "esc"} {
+	for _, k := range []string{"q", "a", "Q", "A", "j", "k", "G", "l", "h", "w", "d", "esc"} {
 		use(k, "page/action key")
 	}
 	for _, k := range registry() {

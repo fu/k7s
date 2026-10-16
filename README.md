@@ -153,7 +153,8 @@ The navigation bar shows the menus with their key letter in cyan:
 | key | |
 |-----|---|
 | `c` / `n` / `f` | pick the **c**ontext / **n**amespace / **f**ilter; enter switches and returns |
-| `g` `d` `r` `p` `m` `v` `s` | show or hide the **g**itops / **d**eployments / **r**eplicasets / **p**ods / clai**m**s / **v**olumes / **s**ecrets section |
+| `g` `e` `r` `p` `m` `v` `s` | show or hide the **g**itops / d**e**ployments / **r**eplicasets / **p**ods / clai**m**s / **v**olumes / **s**ecrets section |
+| `d` | on any row: **d**escribe it, the same text as `kubectl describe` (from kubectl's own describe code) |
 | `↑↓`, `0-9` | move; jump to row `#` of the current section |
 | `l` / `h` / `w` | on a pod: **l**ogs, s**h**ell, for**w**ard a port (again: stop) |
 | `enter` | on a pod: logs; on a secret: open it |

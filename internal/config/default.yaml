@@ -7,7 +7,7 @@
 # The file format. k7s migrates older files and never overwrites a newer one.
 version: 2
 
-# Sections toggled off with their key (g d r p m v s) stay off on the next start.
+# Sections toggled off with their key (g e r p m v s) stay off on the next start.
 sections:
   hidden: []
 

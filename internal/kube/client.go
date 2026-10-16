@@ -22,6 +22,8 @@ type Client struct {
 	Namespace string
 	Context   string
 	Server    string
+
+	kinds kinds // REST mappings by kind, for Describe
 }
 
 // New resolves kubeconfig the same way kubectl does.

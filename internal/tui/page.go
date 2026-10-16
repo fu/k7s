@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"slices"
@@ -97,11 +98,39 @@ func (m *model) selection() (resources.Resource, string) {
 	return nil, ""
 }
 
+// actions are the selected row's keys: its kind's, and d (describe) on
+// every row that shows an object.
 func (m *model) actions() []resources.Action {
-	if k, key := m.selection(); k != nil {
-		return k.Actions(key)
+	k, key := m.selection()
+	if k == nil {
+		return nil
 	}
-	return nil
+	actions := k.Actions(key)
+	for _, r := range m.rows(k) {
+		if r.Key == key && r.Ref.Kind != "" {
+			ref := r.Ref
+			actions = append(actions, resources.Action{Key: "d", Hint: "[d]escribe", Do: func() resources.Step { return m.describe(ref) }})
+		}
+	}
+	return actions
+}
+
+// describe shows "kubectl describe" of an object.
+func (m *model) describe(ref resources.Ref) resources.Step {
+	client := m.client
+	return &resources.Viewer{
+		Title: "describe " + strings.ToLower(ref.Kind) + " " + ref.Name,
+		Stream: func(ctx context.Context, emit func(resources.Line)) error {
+			out, err := client.Describe(ref.Kind, ref.Namespace, ref.Name)
+			if err != nil {
+				return err
+			}
+			for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+				emit(resources.Line{Text: strings.ReplaceAll(line, "\t", "    ")})
+			}
+			return nil
+		},
+	}
 }
 
 func (m *model) moveSelection(delta int) {
