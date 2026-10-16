@@ -5,7 +5,7 @@
 # comments do not survive there. Edit it while k7s is not running.
 
 # The file format. k7s migrates older files and never overwrites a newer one.
-version: 3
+version: 4
 
 # The order of the sections, top to bottom (and in the menu). Sections not
 # listed follow in this order.
@@ -31,6 +31,24 @@ sections:
 hide:
   pods: [completed]
   replicasets: [old]
+
+# What each section on the page shows in the status line, after its name;
+# "*" adds to every section ("pods: []" leaves pods only the "*" items).
+# Sections toggled off show nothing. Available:
+#   every section:  errors (a watch that fails), hidden (rows hidden by state)
+#   gitops:         light (the worst light of the apps and their parents)
+#   deployments, replicasets, pods, claims, volumes:
+#                   lights ("8 ●5 ●2 ●1": how many, green, amber, red)
+#   pods:           forwards (running port-forwards), metrics (when
+#                   metrics-server cannot be reached)
+#   secrets:        count
+status:
+  "*": [errors, hidden]
+  gitops: [light]
+  deployments: [lights]
+  pods: [lights, forwards, metrics]
+  claims: [lights]
+  secrets: [count]
 
 # Commands the selected row offers, per section, and their keys (several:
 # "l enter"). Commands not listed exist but are not offered; "*" is for every

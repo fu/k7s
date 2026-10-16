@@ -228,6 +228,20 @@ commands:
     open: enter
 ```
 
+The `status` part picks what each section shows in the status line, after
+its name. Every kind declares its items in its `status.go`. A section
+toggled off shows nothing there.
+
+```yaml
+status:
+  "*": [errors, hidden]           # every section: watch errors, rows hidden by state
+  gitops: [light]                 # the worst light of the apps and their parents
+  deployments: [lights]           # "2 ●2 ●0 ●0": how many, green, amber, red
+  pods: [lights, forwards, metrics]
+  claims: [lights]
+  secrets: [count]
+```
+
 A command a section does not list is not offered (`pods: {}` offers none).
 A section missing from `commands` gets its defaults. Page keys (`c n f`, the
 section keys, `q a Q A`, `j k G`, digits, `esc`) win over commands.
@@ -246,7 +260,7 @@ internal/config/           the YAML config: section order, commands, colors, hid
 internal/kube/             cluster access: clients, contexts, a generic watch,
                            exec, port-forward, events, value formatting
 internal/resources/        the contract every kind implements
-  resource.go              Resource (a section), Keyed, Stateful, Linker/Link, Host, Change
+  resource.go              Resource (a section), Indicator, Keyed, Stateful, Linker/Link, Host, Change
   row.go                   Column, Row, Cell + Tone — what to show, not how
   command.go               Command (what a row can do) and its Target
   steps.go                 what a command leads to: Picker, Viewer, Exec
@@ -255,6 +269,7 @@ internal/resources/        the contract every kind implements
                            one folder per kind, each with
                              resource.go  watch, state, change log, links
                              row.go       its columns and cells
+                             status.go    what it can show in the status line
                              commands/    what its rows can do, one file each
                                           (pods: logs, shell, forward; secrets: open)
   restest/                 a recording Host for testing kinds

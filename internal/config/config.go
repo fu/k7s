@@ -24,7 +24,8 @@ import (
 //	1  version, sections, namespaces, colors
 //	2  + hide
 //	3  + commands, resource_order
-const Version = 3
+//	4  + status
+const Version = 4
 
 //go:embed default.yaml
 var defaultYAML []byte
@@ -40,6 +41,9 @@ type Config struct {
 	// Commands are, per section ("*" for every section), the commands the
 	// selected row offers and their keys, e.g. pods: {shell: h, logs: l enter}.
 	Commands map[string]map[string]string `yaml:"commands"`
+	// Status lists, per section ("*" for every section), what it shows in
+	// the status line, e.g. pods: [lights, forwards].
+	Status map[string][]string `yaml:"status"`
 	// Namespaces is the last namespace per context, used when -n is not given.
 	Namespaces map[string]string `yaml:"namespaces,omitempty"`
 	Colors     Colors            `yaml:"colors"`
@@ -144,6 +148,14 @@ func (c *Config) fill(d *Config) {
 			c.Commands[section] = cmds
 		}
 	}
+	if c.Status == nil {
+		c.Status = map[string][]string{}
+	}
+	for section, items := range d.Status {
+		if _, ok := c.Status[section]; !ok {
+			c.Status[section] = items
+		}
+	}
 	for _, f := range []struct {
 		v *string
 		d string
@@ -221,6 +233,21 @@ func (c *Config) CommandKeys(section, command string) []string {
 		keys = c.Commands["*"][command]
 	}
 	return strings.Fields(keys)
+}
+
+// StatusItems lists what a section shows in the status line: its own items,
+// then those for every section ("*").
+func (c *Config) StatusItems(section string) []string {
+	if c == nil {
+		return nil
+	}
+	out := slices.Clone(c.Status[section])
+	for _, it := range c.Status["*"] {
+		if !slices.Contains(out, it) {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 // Order sorts names (sections in their built-in order) by ResourceOrder;

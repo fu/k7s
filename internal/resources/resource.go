@@ -47,12 +47,21 @@ type Resource interface {
 	Rows() []Row
 	// Empty is shown instead of a table without rows.
 	Empty() string
-	// Status is its part of the status line (none if empty).
-	Status() []Cell
+	// Indicators are what it can show in the status line (status.go); the
+	// config picks which, the tui puts the section name in front.
+	Indicators() []Indicator
 
 	// Listed returns the objects the section shows (and their owners, such
 	// as a pod's Deployment), so other kinds can relate to them.
 	Listed() []Ref
+}
+
+// Indicator is one thing a section can show in the status line, e.g. the
+// pods' lights "8 ●5 ●1 ●0" or "⇄ 1 forwarded". Cells returns nothing
+// when there is nothing to say.
+type Indicator struct {
+	Name  string // how the config refers to it, e.g. "lights"
+	Cells func() []Cell
 }
 
 // Labeled is a kind with its own API resource; the filter applies to it and

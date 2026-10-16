@@ -244,20 +244,13 @@ func (m *model) statusLine() string {
 		filter = "filter " + cyan.Render(m.info.Selector)
 	}
 	parts := []string{badge.Render("k7s"), "ctx " + cyan.Render(m.info.Context), "ns " + cyan.Render(m.info.Namespace), filter}
+	for _, k := range m.sections() {
+		if s := m.sectionStatus(k); s != "" {
+			parts = append(parts, s)
+		}
+	}
 	ready := true
 	for _, k := range m.kinds {
-		s := k.Status()
-		// Say what the hidden states keep out of a section on the page (a
-		// section toggled off shows no rows anyway).
-		if n := m.hiddenRows(k); n > 0 && m.page.shown(k) {
-			if len(s) == 0 {
-				s = []resources.Cell{{Text: k.Name()}}
-			}
-			s = append(s, resources.Cell{Text: fmt.Sprintf(" (+%d hidden)", n), Tone: resources.Dim})
-		}
-		if len(s) > 0 {
-			parts = append(parts, cells(s))
-		}
 		ready = ready && k.Ready()
 	}
 	if ready {
@@ -266,6 +259,35 @@ func (m *model) statusLine() string {
 		parts = append(parts, yellow.Render("○ syncing"))
 	}
 	return clip(joinParts(parts), m.width)
+}
+
+// sectionStatus is a section's part of the status line: its name and the
+// items the config picks (its own indicators, and "hidden": rows hidden by
+// state), those with something to say; empty if none has.
+func (m *model) sectionStatus(k resources.Resource) string {
+	byName := map[string]resources.Indicator{}
+	for _, ind := range k.Indicators() {
+		byName[ind.Name] = ind
+	}
+	var items []string
+	for _, name := range m.page.cfg.StatusItems(k.Name()) {
+		var cs []resources.Cell
+		switch ind, ok := byName[name]; {
+		case ok:
+			cs = ind.Cells()
+		case name == "hidden":
+			if n := m.hiddenRows(k); n > 0 {
+				cs = []resources.Cell{{Text: fmt.Sprintf("(+%d hidden)", n), Tone: resources.Dim}}
+			}
+		}
+		if len(cs) > 0 {
+			items = append(items, cells(cs))
+		}
+	}
+	if len(items) == 0 {
+		return ""
+	}
+	return k.Name() + " " + strings.Join(items, " ")
 }
 
 func (m *model) pageView() string {

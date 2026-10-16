@@ -172,39 +172,6 @@ func (r *Resource) Empty() string {
 	return "no pods"
 }
 
-func (r *Resource) Status() []resources.Cell {
-	var healthy, progressing, failing int
-	for _, rs := range r.rows {
-		if !rs.deletedAt.IsZero() {
-			continue
-		}
-		switch rs.row.Health() {
-		case Healthy:
-			healthy++
-		case Progressing:
-			progressing++
-		case Failing:
-			failing++
-		}
-	}
-	s := []resources.Cell{
-		{Text: fmt.Sprintf("pods %d ", len(r.order))},
-		{Text: fmt.Sprintf("●%d ", healthy), Tone: resources.Good},
-		{Text: fmt.Sprintf("●%d ", progressing), Tone: resources.Busy},
-		{Text: fmt.Sprintf("●%d", failing), Tone: resources.Bad},
-	}
-	if n := len(r.forwards); n > 0 {
-		s = append(s, resources.Cell{Text: fmt.Sprintf(" ⇄ %d forwarded", n), Tone: resources.Info})
-	}
-	if r.metricsErr != nil {
-		s = append(s, resources.Cell{Text: " metrics unavailable", Tone: resources.Bad})
-	}
-	if r.watchErr != nil && time.Since(r.watchErrAt) < 30*time.Second {
-		s = append(s, resources.Cell{Text: " watch error: " + r.watchErr.Error(), Tone: resources.Bad})
-	}
-	return s
-}
-
 // ---- state and change log ------------------------------------------------------
 
 func (r *Resource) log(at time.Time, kind resources.ChangeKind, p Row, detail string) {

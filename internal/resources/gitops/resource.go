@@ -209,25 +209,6 @@ func isResponsible(a App, listed map[Ref]bool, ns string, all bool) bool {
 	return false
 }
 
-// Status is one light for the whole deployment chain: an all-green pod list
-// under a broken app (or a broken parent app) must not look fine.
-func (r *Resource) Status() []resources.Cell {
-	var s []resources.Cell
-	if keys := r.responsible(); len(keys) > 0 {
-		apps, parents := r.apps()
-		worst := Grey
-		for _, k := range keys {
-			worst = max(worst, apps[k].Overall(), ChainLight(k, apps, parents))
-		}
-		s = append(s, resources.Cell{Text: "gitops "}, resources.Cell{Text: "●", Tone: resources.Light(int(worst))},
-			resources.Cell{Text: fmt.Sprintf(" %d apps", len(keys))})
-	}
-	if r.err != nil && time.Since(r.errAt) < 30*time.Second {
-		s = append(s, resources.Cell{Text: " gitops: " + r.err.Error(), Tone: resources.Bad})
-	}
-	return s
-}
-
 // ---- state and change log ------------------------------------------------------
 
 func (r *Resource) apply(e Event) tea.Cmd {

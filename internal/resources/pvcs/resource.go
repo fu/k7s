@@ -151,35 +151,6 @@ func (r *Resource) Empty() string {
 	return "no volume claims"
 }
 
-func (r *Resource) Status() []resources.Cell {
-	if len(r.order) == 0 && r.err == nil {
-		return nil
-	}
-	var good, busy, bad int
-	for _, rs := range r.rows {
-		if rs.deletedAt.IsZero() {
-			switch rs.row.Light() {
-			case resources.Good:
-				good++
-			case resources.Busy:
-				busy++
-			case resources.Alarm:
-				bad++
-			}
-		}
-	}
-	s := []resources.Cell{
-		{Text: fmt.Sprintf("claims %d ", len(r.order))},
-		{Text: fmt.Sprintf("●%d ", good), Tone: resources.Good},
-		{Text: fmt.Sprintf("●%d ", busy), Tone: resources.Busy},
-		{Text: fmt.Sprintf("●%d", bad), Tone: resources.Bad},
-	}
-	if r.err != nil && time.Since(r.errAt) < 30*time.Second {
-		s = append(s, resources.Cell{Text: " watch error: " + r.err.Error(), Tone: resources.Bad})
-	}
-	return s
-}
-
 // ---- state and change log ------------------------------------------------------
 
 func (r *Resource) log(kind resources.ChangeKind, c Row, detail string) {

@@ -150,14 +150,6 @@ func (r *Resource) Empty() string {
 	return "no replicasets"
 }
 
-// Status: the deployments say how the rollouts are; only errors here.
-func (r *Resource) Status() []resources.Cell {
-	if r.err != nil && time.Since(r.errAt) < 30*time.Second {
-		return []resources.Cell{{Text: "replicasets: " + r.err.Error(), Tone: resources.Bad}}
-	}
-	return nil
-}
-
 // ---- state and change log ------------------------------------------------------
 
 func (r *Resource) log(kind resources.ChangeKind, s Row, detail string) {

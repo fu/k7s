@@ -158,11 +158,3 @@ func (r *Resource) Empty() string {
 	}
 	return "no secrets"
 }
-
-func (r *Resource) Status() []resources.Cell {
-	s := []resources.Cell{{Text: fmt.Sprintf("secrets %d", len(r.order))}}
-	if r.err != nil && time.Since(r.errAt) < 30*time.Second {
-		s = append(s, resources.Cell{Text: " watch error: " + r.err.Error(), Tone: resources.Bad})
-	}
-	return s
-}

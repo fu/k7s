@@ -112,6 +112,16 @@ commands:
 	}
 }
 
+func TestStatusItems(t *testing.T) {
+	d := Default()
+	if got := strings.Join(d.StatusItems("pods"), " "); got != "lights forwards metrics errors hidden" {
+		t.Errorf("pods: %q", got)
+	}
+	if got := strings.Join(d.StatusItems("volumes"), " "); got != "errors hidden" {
+		t.Errorf("volumes: %q", got)
+	}
+}
+
 func TestResourceOrder(t *testing.T) {
 	builtIn := []string{"gitops", "deployments", "pods", "secrets"}
 	c := &Config{ResourceOrder: []string{"pods", "gitops", "unknown", "pods"}}

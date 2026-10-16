@@ -1,6 +1,9 @@
 package resources
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // What a table shows. Kinds fill these in; the tui lays them out (widths,
 // truncation, colors, the # column, selection).
@@ -48,6 +51,31 @@ const (
 
 // FlashFor is how long a changed cell stays highlighted.
 const FlashFor = 3 * time.Second
+
+// Lights is the usual "lights" status: how many rows, and how many of them
+// are green, amber and red ("8 ●5 ●2 ●1"); nothing for no rows.
+func Lights(tones []Tone) []Cell {
+	if len(tones) == 0 {
+		return nil
+	}
+	var good, busy, bad int
+	for _, t := range tones {
+		switch t {
+		case Good:
+			good++
+		case Busy, Warn:
+			busy++
+		case Bad, Alarm:
+			bad++
+		}
+	}
+	return []Cell{
+		{Text: fmt.Sprintf("%d ", len(tones))},
+		{Text: fmt.Sprintf("●%d ", good), Tone: Good},
+		{Text: fmt.Sprintf("●%d ", busy), Tone: Busy},
+		{Text: fmt.Sprintf("●%d", bad), Tone: Bad},
+	}
+}
 
 // Light is the tone of a traffic light: no light, green, amber, red.
 func Light(level int) Tone {

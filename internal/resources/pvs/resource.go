@@ -172,14 +172,6 @@ func (r *Resource) Empty() string {
 	return "no volumes bound to claims here"
 }
 
-// Status: the claims say how storage is; only errors here.
-func (r *Resource) Status() []resources.Cell {
-	if r.err != nil && time.Since(r.errAt) < 30*time.Second {
-		return []resources.Cell{{Text: "volumes: " + r.err.Error(), Tone: resources.Bad}}
-	}
-	return nil
-}
-
 // ---- state and change log ------------------------------------------------------
 
 // log adds a change; it shows while the volume belongs on the page.
