@@ -126,7 +126,7 @@ func TestPageKeysAreUnique(t *testing.T) {
 	for _, s := range scopes {
 		use(s[:1], "menu "+s)
 	}
-	for _, k := range []string{"q", "a", "j", "k", "G", "l", "h", "w", "esc"} {
+	for _, k := range []string{"q", "a", "Q", "A", "j", "k", "G", "l", "h", "w", "esc"} {
 		use(k, "page/action key")
 	}
 	for _, k := range registry() {
@@ -138,6 +138,33 @@ func TestPageKeysAreUnique(t *testing.T) {
 		if len(k.Tag()) > 3 {
 			t.Errorf("section %s: tag %q is longer than 3 letters", k.Name(), k.Tag())
 		}
+	}
+}
+
+func TestDividerMoves(t *testing.T) {
+	m := &model{height: 40}
+	key := func(k string) { m.pageKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}) }
+	start := m.layout().changes // 12: a third of 40, at most 12
+	key("Q")
+	key("Q")
+	if got := m.layout().changes; got != start+2 {
+		t.Errorf("Q twice: %d lines, want %d", got, start+2)
+	}
+	for range 50 {
+		key("Q")
+	}
+	if l := m.layout(); l.body != 3 {
+		t.Errorf("the sections keep 3 lines, got %d", l.body)
+	}
+	key("A") // one step back down, right away
+	if l := m.layout(); l.body != 4 {
+		t.Errorf("A after the limit moves at once, body %d", l.body)
+	}
+	for range 50 {
+		key("A")
+	}
+	if got := m.layout().changes; got != 2 {
+		t.Errorf("the change log keeps 2 lines, got %d", got)
 	}
 }
 

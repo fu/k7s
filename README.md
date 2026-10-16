@@ -158,6 +158,7 @@ The navigation bar shows the menus with their key letter in cyan:
 | `l` / `h` / `w` | on a pod: **l**ogs, s**h**ell, for**w**ard a port (again: stop) |
 | `enter` | on a pod: logs; on a secret: open it |
 | `q` / `a` | scroll the change log up / down |
+| `Q` / `A` | move the divider up / down: a taller / shorter change log |
 | `esc` | back; on the main page: quit |
 
 The **filter** pane suggests selectors from the app labels in the namespace

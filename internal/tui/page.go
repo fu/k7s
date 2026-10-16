@@ -25,6 +25,7 @@ type page struct {
 	offset   int            // first visible body line
 	jumpBuf  string
 	jumpAt   time.Time
+	grow     int // lines the change log got (Q) or gave (A) over its default height
 }
 
 func (p *page) reset() { p.selected, p.moved, p.offset, p.jumpBuf = "", false, 0, "" }
@@ -167,6 +168,10 @@ func (m *model) pageKey(msg tea.KeyMsg) tea.Cmd {
 		m.changes.back++ // the pane clamps it
 	case "a":
 		m.changes.back = max(0, m.changes.back-1)
+	case "Q": // move the divider up: a taller change log
+		m.page.grow = m.layout().changes - m.defaultChanges() + 1
+	case "A": // and down
+		m.page.grow = m.layout().changes - m.defaultChanges() - 1
 	}
 	return nil
 }
@@ -178,9 +183,13 @@ type layout struct {
 	changes int
 }
 
+// defaultChanges is the change log's height before Q / A move the divider.
+func (m *model) defaultChanges() int { return max(4, min(12, m.height/3)) }
+
 func (m *model) layout() layout {
-	l := layout{changes: max(4, min(12, m.height/3))}
-	// status line + blank + body + changes rule + changes + navigation bar
+	// status line + blank + body + changes rule + changes + navigation bar;
+	// the change log keeps at least 2 lines, the sections at least 3.
+	l := layout{changes: max(2, min(m.height-2-1-1-3, m.defaultChanges()+m.page.grow))}
 	l.body = max(1, m.height-2-1-l.changes-1)
 	return l
 }
@@ -291,7 +300,7 @@ func (m *model) pageView() string {
 			cmds = append(cmds, a.Hint)
 		}
 	}
-	cmds = append(cmds, "[q/a] changes", "[esc] quit")
+	cmds = append(cmds, "[q/a] changes", "[Q/A] resize", "[esc] quit")
 	line := strings.Join(cmds, "  ")
 	if m.page.jumpBuf != "" && time.Since(m.page.jumpAt) < jumpWindow {
 		line = "go to #[" + m.page.jumpBuf + "]"
