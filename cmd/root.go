@@ -17,7 +17,6 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/fu/k7s/internal/kube"
-	"github.com/fu/k7s/internal/pods"
 	"github.com/fu/k7s/internal/tui"
 )
 
@@ -48,7 +47,7 @@ filter; p / s / g show or hide the pods, secrets and gitops sections.
 Examples:
   k7s                       # the current namespace
   k7s -n shop -l app=web    # one app in namespace shop
-  k7s -n shop --once        # print the pod table once and exit`,
+  k7s -n shop --once        # print the sections once and exit`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		Version:      version,
@@ -59,7 +58,7 @@ Examples:
 	configFlags.AddFlags(root.Flags())
 	root.Flags().StringVarP(&o.selector, "selector", "l", "", "Label selector to narrow everything to one app (e.g. app=web)")
 	root.Flags().DurationVar(&o.refresh, "refresh", 5*time.Second, "Metrics refresh interval")
-	root.Flags().BoolVar(&o.once, "once", false, "Print the pod table once and exit (default when stdout is not a terminal)")
+	root.Flags().BoolVar(&o.once, "once", false, "Print the sections once and exit (default when stdout is not a terminal)")
 	return root
 }
 
@@ -93,15 +92,15 @@ func run(ctx context.Context, o *options) error {
 		return fmt.Errorf("connecting to %s: %w", client.Context, err)
 	}
 
-	if o.once || !term.IsTerminal(int(os.Stdout.Fd())) {
-		src := pods.NewSource(client, client.Namespace, o.selector, o.refresh)
-		return pods.PrintSnapshot(ctx, src, os.Stdout, false)
-	}
-	return tui.Run(ctx, configFlags, client, tui.Info{
+	info := tui.Info{
 		Context:   client.Context,
 		Server:    client.Server,
 		Namespace: client.Namespace,
 		Selector:  o.selector,
 		Refresh:   o.refresh,
-	})
+	}
+	if o.once || !term.IsTerminal(int(os.Stdout.Fd())) {
+		return tui.Print(ctx, client, info, os.Stdout)
+	}
+	return tui.Run(ctx, configFlags, client, info)
 }

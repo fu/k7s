@@ -1,5 +1,12 @@
-// Package gitops reads GitOps state — Argo CD Applications and Flux
-// Kustomizations / HelmReleases — into one engine-neutral App model.
+// Package gitops is the gitops kind: the Argo CD Applications and Flux
+// Kustomizations / HelmReleases responsible for what the other sections
+// list, in one engine-neutral App model.
+//
+//	gitops.go    the App model, engine detection, the watch, app of apps
+//	argo.go      Argo CD Applications → App
+//	flux.go      Flux Kustomizations / HelmReleases → App
+//	resource.go  state, change log, which apps are responsible
+//	row.go       what a row shows
 package gitops
 
 import (

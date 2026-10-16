@@ -6,97 +6,62 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/fu/k7s/internal/kube"
+	"github.com/fu/k7s/internal/resources"
 )
 
-type ctxState struct {
-	items          []kube.ContextInfo
-	err            error
-	cursor, offset int
+// The scope menus open pickers like any kind's step does.
+
+func (m *model) openScope(scope string, p *resources.Picker) tea.Cmd {
+	cmd := m.openPicker(p)
+	m.top().(*pickerScreen).scope = scope
+	return cmd
 }
 
-// openContexts lists the kubeconfig contexts, starting on the one in use.
+// current marks the row of what is in use.
+func current(on bool) resources.Cell {
+	if on {
+		return resources.Cell{Text: "●", Tone: resources.Good}
+	}
+	return resources.Cell{Text: " "}
+}
+
+// openContexts lists the kubeconfig contexts; switching lands on the
+// context's default namespace.
 func (m *model) openContexts() tea.Cmd {
 	items, err := kube.Contexts(m.flags)
-	m.contexts = ctxState{items: items, err: err}
-	for i, it := range items {
-		if it.Name == m.info.Context {
-			m.contexts.cursor = i
-		}
+	if err != nil {
+		m.Notice("contexts: " + err.Error())
+		return nil
 	}
-	m.screen = screenContexts
-	return nil
-}
-
-func (m *model) contextsKey(msg tea.KeyMsg) tea.Cmd {
-	cs := &m.contexts
-	n := len(cs.items)
-	switch msg.String() {
-	case "esc":
-		m.screen = screenMain
-	case "up", "k":
-		cs.cursor = clampCursor(cs.cursor, -1, n)
-	case "down", "j":
-		cs.cursor = clampCursor(cs.cursor, 1, n)
-	case "pgup":
-		cs.cursor = clampCursor(cs.cursor, -(m.height - 4), n)
-	case "pgdown":
-		cs.cursor = clampCursor(cs.cursor, m.height-4, n)
-	case "home":
-		cs.cursor = 0
-	case "end", "G":
-		cs.cursor = n - 1
-	case "enter":
-		if cs.cursor >= n {
-			return nil
+	p := &resources.Picker{
+		Title: fmt.Sprintf("contexts (%d)", len(items)),
+		Columns: []resources.Column{
+			{Title: " "}, {Title: "CONTEXT"}, {Title: "NAMESPACE"}, {Title: "SERVER", Shrink: true},
+		},
+		Current: m.info.Context,
+		Hint:    "switch",
+	}
+	for _, c := range items {
+		ns := resources.Cell{Text: c.Namespace}
+		if ns.Text == "" {
+			ns = resources.Cell{Text: "default", Tone: resources.Dim}
 		}
-		name := cs.items[cs.cursor].Name
-		m.screen = screenMain
+		p.Rows = append(p.Rows, resources.Row{Key: c.Name, Cells: []resources.Cell{
+			current(c.Name == m.info.Context), {Text: c.Name}, ns, {Text: c.Server, Tone: resources.Dim},
+		}})
+	}
+	p.Pick = func(name string) resources.Step {
 		if name == m.info.Context {
 			return nil
 		}
 		c, err := kube.ForContext(m.flags, name)
 		if err != nil {
-			m.setNotice("context " + name + ": " + err.Error())
+			m.Notice("context " + name + ": " + err.Error())
 			return nil
 		}
-		// Switch to the context and its default namespace.
 		m.client = c
 		m.info.Context, m.info.Server, m.info.Namespace = c.Context, c.Server, c.Namespace
-		m.scopeChanged()
-		return m.startGitOps()
+		return resources.Cmd(m.scopeChanged())
 	}
-	return nil
-}
-
-func (m *model) contextsView() string {
-	cs := &m.contexts
-	t := table{
-		headers: []string{" ", "CONTEXT", "NAMESPACE", "SERVER"},
-		right:   []bool{false, false, false, false},
-		flex:    3,
-	}
-	for _, c := range cs.items {
-		marker := cell{text: " "}
-		if c.Name == m.info.Context {
-			marker = cell{text: "●", style: stGreen}
-		}
-		ns := cell{text: c.Namespace}
-		if ns.text == "" {
-			ns = cell{text: "default", style: stDim}
-		}
-		t.rows = append(t.rows, []cell{
-			marker,
-			{text: c.Name},
-			ns,
-			{text: c.Server, style: stDim},
-		})
-	}
-
-	state := ""
-	if cs.err != nil {
-		state = stRed.Render("error: " + cs.err.Error())
-	}
-	head := m.crumbs(m.info.Context, stYellow.Render(fmt.Sprintf("contexts (%d)", len(cs.items))), state)
-	body := t.render(cs.cursor, &cs.offset, m.height-3, m.width)
-	return head + "\n\n" + body + m.footer("[enter] switch  [esc] back")
+	return m.openScope("contexts", p)
 }

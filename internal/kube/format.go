@@ -1,4 +1,4 @@
-package pods
+package kube
 
 import (
 	"fmt"
@@ -6,6 +6,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/duration"
 )
+
+// Value formatting the way kubectl prints it.
 
 const mi = 1024 * 1024
 
@@ -43,12 +45,4 @@ func Age(t time.Time) string {
 		return "<unknown>"
 	}
 	return duration.HumanDuration(time.Since(t))
-}
-
-// Restarts formats the RESTARTS column like kubectl: "3 (5m ago)".
-func Restarts(r Row) string {
-	if r.Restarts > 0 && !r.LastRestart.IsZero() {
-		return fmt.Sprintf("%d (%s ago)", r.Restarts, Age(r.LastRestart))
-	}
-	return fmt.Sprint(r.Restarts)
 }

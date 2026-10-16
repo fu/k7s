@@ -11,7 +11,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 )
 
-// sizeQueue forwards local terminal resizes to the remote TTY.
+// sizeQueue forwards local terminal resizes to the remote TTY of an Exec.
 type sizeQueue struct {
 	fd   int
 	ch   chan remotecommand.TerminalSize

@@ -1,4 +1,13 @@
-// Package pods turns the pod watch stream and metrics API into display rows.
+// Package pods is the pods kind: one row per pod with READY, a status light,
+// restarts and CPU/MEM; the selected pod offers logs, a shell and
+// port-forwarding.
+//
+//	pod.go       a pod as k7s sees it (READY/STATUS like kubectl, why it exits)
+//	watch.go     the pod watch and the metrics poll
+//	resource.go  state, change log, actions
+//	row.go       what a row shows
+//	logs.go      logs and shell of a container
+//	forward.go   port-forwarding
 package pods
 
 import (
@@ -7,9 +16,11 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/fu/k7s/internal/kube"
 )
 
-// Row is the flattened, display-oriented view of a pod.
+// Row is the flattened view of a pod.
 type Row struct {
 	Namespace   string
 	Name        string
@@ -41,6 +52,14 @@ type Row struct {
 func (r Row) Key() string         { return r.Namespace + "/" + r.Name }
 func (r Row) ReadyString() string { return fmt.Sprintf("%d/%d", r.Ready, r.Total) }
 
+// RestartsString is the RESTARTS column like kubectl: "3 (5m ago)".
+func (r Row) RestartsString() string {
+	if r.Restarts > 0 && !r.LastRestart.IsZero() {
+		return fmt.Sprintf("%d (%s ago)", r.Restarts, kube.Age(r.LastRestart))
+	}
+	return fmt.Sprint(r.Restarts)
+}
+
 // FromPod builds a Row, mirroring kubectl's pod printer for READY/STATUS/RESTARTS.
 func FromPod(pod *corev1.Pod) Row {
 	r := Row{
@@ -53,7 +72,7 @@ func FromPod(pod *corev1.Pod) Row {
 	}
 
 	sidecars := map[string]bool{}
-	var res resources
+	var res requests
 	for i := range pod.Spec.InitContainers {
 		c := &pod.Spec.InitContainers[i]
 		if isSidecar(c) {
@@ -316,12 +335,13 @@ func (r *Row) trackRestarts(cs corev1.ContainerStatus) {
 	}
 }
 
-type resources struct {
+// requests sums the requests and limits of a pod's long-running containers.
+type requests struct {
 	cpuReq, cpuLim, memReq, memLim int64
 	cpuUnbounded, memUnbounded     bool
 }
 
-func (r *resources) add(c *corev1.Container) {
+func (r *requests) add(c *corev1.Container) {
 	r.cpuReq += c.Resources.Requests.Cpu().MilliValue()
 	r.memReq += c.Resources.Requests.Memory().Value()
 	if l := c.Resources.Limits.Cpu().MilliValue(); l > 0 {

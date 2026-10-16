@@ -1,6 +1,7 @@
-// Package secrets watches secrets for the secrets view. Values are dropped
-// as they arrive; they are only fetched for one secret on request.
 package secrets
+
+// The secret watch. Values are dropped as they arrive; they are only
+// fetched for one secret on request.
 
 import (
 	"context"

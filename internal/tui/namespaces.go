@@ -3,169 +3,143 @@ package tui
 import (
 	"context"
 	"fmt"
-	"time"
+	"sort"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/fu/k7s/internal/namespaces"
-	"github.com/fu/k7s/internal/pods"
+	"github.com/fu/k7s/internal/kube"
+	"github.com/fu/k7s/internal/resources"
+	"github.com/fu/k7s/internal/resources/pods"
 )
 
-type (
-	nsLoadedMsg struct {
-		gen   int
-		items []namespaces.Summary
-		err   error
-	}
-	nsRefreshMsg struct {
-		gen int
-	}
-)
-
-type nsState struct {
-	gen            int // bumped whenever the screen is left, to stop refreshes
-	items          []namespaces.Summary
-	err            error
-	loadedAt       time.Time
-	placed         bool // cursor moved to the current namespace yet
-	cursor, offset int
-}
-
-// openNamespaces lists the namespaces of the current context.
+// openNamespaces lists the namespaces with their pod health and usage,
+// refreshed while open.
 func (m *model) openNamespaces() tea.Cmd {
-	ns := &m.namespaces
-	*ns = nsState{gen: ns.gen + 1}
-	m.screen = screenNamespaces
-	return m.loadNamespaces()
-}
-
-func (m *model) loadNamespaces() tea.Cmd {
-	gen, client, ctx := m.namespaces.gen, m.client, m.ctx
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		defer cancel()
-		items, err := namespaces.List(ctx, client)
-		return nsLoadedMsg{gen, items, err}
+	client, ns := m.client, m.info.Namespace
+	count := func(n int, ok bool, tone resources.Tone) resources.Cell {
+		switch {
+		case !ok:
+			return resources.Cell{Text: "-", Tone: resources.Dim}
+		case n == 0:
+			return resources.Cell{Text: "0", Tone: resources.Dim}
+		}
+		return resources.Cell{Text: fmt.Sprint(n), Tone: tone}
 	}
-}
-
-func (m *model) namespacesMsg(msg tea.Msg) tea.Cmd {
-	ns := &m.namespaces
-	switch msg := msg.(type) {
-	case nsLoadedMsg:
-		if msg.gen != ns.gen {
+	p := &resources.Picker{
+		Title: "namespaces",
+		Columns: []resources.Column{
+			{Title: " "}, {Title: "NAMESPACE", Shrink: true}, {Title: "STATUS"},
+			{Title: "PODS", Right: true}, {Title: "RUNNING", Right: true}, {Title: "PENDING", Right: true}, {Title: "FAILING", Right: true},
+			{Title: "CPU", Right: true}, {Title: "MEM", Right: true}, {Title: "AGE"},
+		},
+		Current: ns,
+		Hint:    "switch",
+		Every:   m.info.Refresh,
+		Load: func(ctx context.Context) ([]resources.Row, error) {
+			list, err := namespaceSummaries(ctx, client)
+			if err != nil {
+				// Listing namespaces may be forbidden; still offer the
+				// context's own namespace so it can be used.
+				list = []nsSummary{{Name: client.Namespace}}
+			}
+			rows := make([]resources.Row, len(list))
+			for i, s := range list {
+				status := resources.Cell{Text: s.Status, Tone: resources.Dim}
+				if s.Status == "Terminating" {
+					status.Tone = resources.Bad
+				}
+				rows[i] = resources.Row{Key: s.Name, Cells: []resources.Cell{
+					current(s.Name == ns), {Text: s.Name}, status,
+					count(s.Pods, s.HasPods, resources.Strong),
+					count(s.Healthy, s.HasPods, resources.Good),
+					count(s.Progressing, s.HasPods, resources.Busy),
+					count(s.Failing, s.HasPods, resources.Alarm),
+					{Text: dash(s.HasMetrics, kube.CPU(s.CPU))},
+					{Text: dash(s.HasMetrics, kube.Mem(s.Mem))},
+					{Text: kube.Age(s.Created.Time), Tone: resources.Dim},
+				}}
+			}
+			return rows, err
+		},
+	}
+	p.Pick = func(name string) resources.Step {
+		if name == m.info.Namespace {
 			return nil
 		}
-		ns.err, ns.loadedAt = msg.err, time.Now()
-		switch {
-		case msg.err == nil:
-			ns.items = msg.items
-		case len(ns.items) == 0:
-			// Listing namespaces may be forbidden; still offer the
-			// context's own namespace so it can be used.
-			ns.items = []namespaces.Summary{{Name: m.client.Namespace}}
+		m.info.Namespace = name
+		return resources.Cmd(m.scopeChanged())
+	}
+	return m.openScope("namespaces", p)
+}
+
+func dash(ok bool, s string) string {
+	if !ok {
+		return "-"
+	}
+	return s
+}
+
+// nsSummary is one namespace with pod health counts and summed usage.
+type nsSummary struct {
+	Name, Status                        string
+	Created                             metav1.Time
+	HasPods                             bool // needs a cluster-wide pod list
+	Pods, Healthy, Progressing, Failing int
+	HasMetrics                          bool
+	CPU, Mem                            int64
+}
+
+// namespaceSummaries lists all namespaces. Counts and metrics are best
+// effort: missing RBAC or metrics-server just leaves them unknown.
+func namespaceSummaries(ctx context.Context, c *kube.Client) ([]nsSummary, error) {
+	nsList, err := c.Kube.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]nsSummary, len(nsList.Items))
+	byName := make(map[string]*nsSummary, len(out))
+	for i, ns := range nsList.Items {
+		out[i] = nsSummary{Name: ns.Name, Status: string(ns.Status.Phase), Created: ns.CreationTimestamp}
+		byName[ns.Name] = &out[i]
+	}
+
+	// ResourceVersion "0" is served from the API server's watch cache.
+	if podList, err := c.Kube.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{ResourceVersion: "0"}); err == nil {
+		for i := range out {
+			out[i].HasPods = true
 		}
-		if !ns.placed {
-			ns.placed = true
-			for i, it := range ns.items {
-				if it.Name == m.info.Namespace {
-					ns.cursor = i
+		for i := range podList.Items {
+			s := byName[podList.Items[i].Namespace]
+			if s == nil {
+				continue
+			}
+			s.Pods++
+			switch pods.FromPod(&podList.Items[i]).Health() {
+			case pods.Healthy:
+				s.Healthy++
+			case pods.Progressing:
+				s.Progressing++
+			case pods.Failing:
+				s.Failing++
+			}
+		}
+	}
+
+	if mList, err := c.Metrics.MetricsV1beta1().PodMetricses(metav1.NamespaceAll).List(ctx, metav1.ListOptions{}); err == nil {
+		for i := range out {
+			out[i].HasMetrics = true
+		}
+		for _, pm := range mList.Items {
+			if s := byName[pm.Namespace]; s != nil {
+				for _, ct := range pm.Containers {
+					s.CPU += ct.Usage.Cpu().MilliValue()
+					s.Mem += ct.Usage.Memory().Value()
 				}
 			}
 		}
-		gen := ns.gen
-		return tea.Tick(m.info.Refresh, func(time.Time) tea.Msg { return nsRefreshMsg{gen} })
-	case nsRefreshMsg:
-		if msg.gen == ns.gen && m.screen == screenNamespaces {
-			return m.loadNamespaces()
-		}
-	}
-	return nil
-}
-
-func (m *model) namespacesKey(msg tea.KeyMsg) tea.Cmd {
-	ns := &m.namespaces
-	n := len(ns.items)
-	switch msg.String() {
-	case "esc":
-		m.leave()
-		m.screen = screenMain
-	case "up", "k":
-		ns.cursor = clampCursor(ns.cursor, -1, n)
-	case "down", "j":
-		ns.cursor = clampCursor(ns.cursor, 1, n)
-	case "pgup":
-		ns.cursor = clampCursor(ns.cursor, -(m.height - 4), n)
-	case "pgdown":
-		ns.cursor = clampCursor(ns.cursor, m.height-4, n)
-	case "home":
-		ns.cursor = 0
-	case "end", "G":
-		ns.cursor = n - 1
-	case "enter":
-		if ns.cursor < n {
-			m.info.Namespace = ns.items[ns.cursor].Name
-			m.scopeChanged()
-		}
-		m.leave()
-		m.screen = screenMain
-	}
-	return nil
-}
-
-func (m *model) namespacesView() string {
-	ns := &m.namespaces
-	t := table{
-		headers: []string{" ", "NAMESPACE", "STATUS", "PODS", "RUNNING", "PENDING", "FAILING", "CPU", "MEM", "AGE"},
-		right:   []bool{false, false, false, true, true, true, true, true, true, false},
-		flex:    1,
 	}
 
-	for _, it := range ns.items {
-		t.rows = append(t.rows, m.nsRow(it, it.Name == m.info.Namespace))
-	}
-
-	state := stDim.Render("loading…")
-	switch {
-	case ns.err != nil:
-		state = stRed.Render("error: " + ns.err.Error())
-	case !ns.loadedAt.IsZero():
-		state = stDim.Render(fmt.Sprintf("refreshed %ds ago", int(time.Since(ns.loadedAt).Seconds())))
-	}
-	head := m.crumbs(m.info.Context, stYellow.Render(fmt.Sprintf("namespaces (%d)", len(ns.items))), state)
-	body := t.render(ns.cursor, &ns.offset, m.height-3, m.width)
-	return head + "\n\n" + body + m.footer("[enter] switch  [esc] back")
-}
-
-func (m *model) nsRow(s namespaces.Summary, current bool) []cell {
-	marker := cell{text: " "}
-	if current {
-		marker = cell{text: "●", style: stGreen}
-	}
-	status := cell{text: s.Status, style: stDim}
-	if s.Status == "Terminating" {
-		status.style = stMagenta
-	}
-	count := func(n int, st lipgloss.Style) cell {
-		if !s.HasPods {
-			return cell{text: "-", style: stDim}
-		}
-		if n == 0 {
-			return cell{text: "0", style: stDim}
-		}
-		return cell{text: fmt.Sprint(n), style: st}
-	}
-	return []cell{
-		marker,
-		{text: s.Name},
-		status,
-		count(s.Pods, stHeader),
-		count(s.Healthy, stGreen),
-		count(s.Progressing, stAmber),
-		count(s.Failing, stRed.Bold(true)),
-		{text: dash(s.HasMetrics, pods.CPU(s.CPU))},
-		{text: dash(s.HasMetrics, pods.Mem(s.Mem))},
-		{text: pods.Age(s.Created), style: stDim},
-	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }

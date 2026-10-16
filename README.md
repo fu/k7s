@@ -25,7 +25,7 @@ Or download a binary from the [releases](https://github.com/fu/k7s/releases).
 k7s                         # the current namespace
 k7s -n shop                 # namespace shop
 k7s -n shop -l app=web      # only one app in it
-k7s -n shop --once          # print the pod table once and exit (also when piped)
+k7s -n shop --once          # print the sections once and exit (also when piped)
 k7s --refresh 2s            # metrics poll interval (default 5s)
 ```
 
@@ -122,15 +122,31 @@ local port when free). Pods with several containers or ports get a picker.
 ## Code layout
 
 ```
-cmd/                  CLI: k7s [-n] [-l]
-internal/kube         clients, contexts, exec (shell), port-forward
-internal/pods         pod rows, watch + metrics + events, logs, --once table
-internal/secrets      secret watch (values dropped) and on-demand values
-internal/gitops       Argo CD / Flux apps, what they manage, parents
-internal/namespaces   namespace summaries
-internal/resources    filter suggestions from app labels
-internal/tui          the main page, its sections and sub screens
+cmd/                       CLI: k7s [-n] [-l] [--once]
+internal/kube/             cluster access: clients, contexts, exec, port-forward,
+                           events, value formatting (CPU, MEM, age)
+internal/resources/        the contract every kind implements
+  resource.go              Resource (a section), Host, Change (change log)
+  row.go                   Column, Row, Cell + Tone — what to show, not how
+  steps.go                 what a key leads to: Picker, Viewer, Exec
+  pods/  secrets/  gitops/ one folder per kind, each with
+                             resource.go  state, change log, Actions
+                             row.go       its columns and cells
+                             + its watch and kind-specific logic
+internal/tui/              everything drawn, the same way for every kind
+  app.go                   the registry of kinds, screens, navigation bar
+  page.go                  the page: sections, selection, # jump
+  table.go                 row layout: widths, shrinking, truncation
+  picker.go  viewer.go     the generic screens of Picker / Viewer steps
+  terminal.go              Exec steps: terminal hand-over (+ size queue)
+  changes.go               the change log and Kubernetes events
+  contexts.go namespaces.go filter.go   the scope menus (pickers)
+  once.go                  --once: the same rows, printed
 ```
+
+Adding a kind (say deployments) means a folder `internal/resources/deployments`
+with `resource.go` and `row.go` and one line in the registry in
+`internal/tui/app.go`; its logs, pickers and the like reuse the generic steps.
 
 ## Build
 
