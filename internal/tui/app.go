@@ -40,6 +40,21 @@ func registry() []resources.Resource {
 	}
 }
 
+// ordered are the kinds in the config's resource_order (top to bottom);
+// kinds it does not list keep their registry order, after the others.
+func ordered(cfg *config.Config, kinds []resources.Resource) []resources.Resource {
+	byName := map[string]resources.Resource{}
+	names := make([]string, len(kinds))
+	for i, k := range kinds {
+		byName[k.Name()], names[i] = k, k.Name()
+	}
+	out := make([]resources.Resource, 0, len(kinds))
+	for _, n := range cfg.Order(names) {
+		out = append(out, byName[n])
+	}
+	return out
+}
+
 // kindCommands are a kind's own commands (its commands folder); those for
 // every kind come from resources/commands. The config binds them to keys.
 func kindCommands(kind string) []resources.Command {
@@ -108,7 +123,7 @@ func Run(ctx context.Context, flags *genericclioptions.ConfigFlags, client *kube
 	}
 	setPalette(info.Config.Colors)
 
-	m := &model{ctx: ctx, flags: flags, client: client, info: info, kinds: registry()}
+	m := &model{ctx: ctx, flags: flags, client: client, info: info, kinds: ordered(info.Config, registry())}
 	m.page.cfg = info.Config
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
 	m.send = p.Send

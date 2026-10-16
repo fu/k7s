@@ -112,6 +112,17 @@ commands:
 	}
 }
 
+func TestResourceOrder(t *testing.T) {
+	builtIn := []string{"gitops", "deployments", "pods", "secrets"}
+	c := &Config{ResourceOrder: []string{"pods", "gitops", "unknown", "pods"}}
+	if got := strings.Join(c.Order(builtIn), " "); got != "pods gitops deployments secrets" {
+		t.Errorf("order %q", got)
+	}
+	if got := strings.Join(Default().Order(builtIn), " "); got != "gitops deployments pods secrets" {
+		t.Errorf("default order %q", got)
+	}
+}
+
 func TestEmptyHideIsKept(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	os.WriteFile(path, []byte("version: 2\nhide: {}\n"), 0o644)

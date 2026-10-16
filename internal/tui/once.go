@@ -17,7 +17,7 @@ import (
 func Print(ctx context.Context, client *kube.Client, info Info, w io.Writer) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	h := &onceHost{ctx: ctx, client: client, info: info, msgs: make(chan tea.Msg, 1024), kinds: registry()}
+	h := &onceHost{ctx: ctx, client: client, info: info, msgs: make(chan tea.Msg, 1024), kinds: ordered(info.Config, registry())}
 	for _, k := range h.kinds {
 		h.run(k.Start(h))
 	}

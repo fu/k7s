@@ -7,6 +7,17 @@
 # The file format. k7s migrates older files and never overwrites a newer one.
 version: 3
 
+# The order of the sections, top to bottom (and in the menu). Sections not
+# listed follow in this order.
+resource_order:
+  - gitops
+  - deployments
+  - replicasets
+  - pods
+  - claims
+  - volumes
+  - secrets
+
 # Sections toggled off with their key (g e r p m v s) stay off on the next start.
 sections:
   hidden: []

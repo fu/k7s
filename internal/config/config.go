@@ -23,7 +23,7 @@ import (
 //
 //	1  version, sections, namespaces, colors
 //	2  + hide
-//	3  + commands
+//	3  + commands, resource_order
 const Version = 3
 
 //go:embed default.yaml
@@ -32,6 +32,9 @@ var defaultYAML []byte
 type Config struct {
 	Version  int      `yaml:"version"`
 	Sections Sections `yaml:"sections"`
+	// ResourceOrder is the order of the sections, top to bottom; sections
+	// not listed follow in their built-in order.
+	ResourceOrder []string `yaml:"resource_order"`
 	// Hide lists, per kind, the row states not shown, e.g. pods: [completed].
 	Hide map[string][]string `yaml:"hide"`
 	// Commands are, per section ("*" for every section), the commands the
@@ -130,6 +133,9 @@ func (c *Config) fill(d *Config) {
 	if c.Hide == nil {
 		c.Hide = d.Hide
 	}
+	if c.ResourceOrder == nil {
+		c.ResourceOrder = d.ResourceOrder
+	}
 	if c.Commands == nil {
 		c.Commands = map[string]map[string]string{}
 	}
@@ -215,6 +221,25 @@ func (c *Config) CommandKeys(section, command string) []string {
 		keys = c.Commands["*"][command]
 	}
 	return strings.Fields(keys)
+}
+
+// Order sorts names (sections in their built-in order) by ResourceOrder;
+// names it does not list keep their built-in order, after those it does.
+func (c *Config) Order(names []string) []string {
+	out := make([]string, 0, len(names))
+	if c != nil {
+		for _, n := range c.ResourceOrder {
+			if slices.Contains(names, n) && !slices.Contains(out, n) {
+				out = append(out, n)
+			}
+		}
+	}
+	for _, n := range names {
+		if !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // SetNamespace remembers the namespace last used in a context.

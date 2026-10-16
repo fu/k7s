@@ -199,9 +199,11 @@ local port when free). Pods with several containers or ports get a picker.
 ## Config
 
 `~/.config/k7s/config.yaml` (or `$XDG_CONFIG_HOME/k7s/config.yaml`, or
-`--config <file>`) keeps the colors and the state k7s comes back to: hidden
-sections, hidden row states, the last namespace per context (used without
-`-n`).
+`--config <file>`) keeps the colors, the order of the sections
+(`resource_order`, top to bottom, e.g. `[pods, gitops]` for pods on top;
+sections not listed follow in the default order), the commands and their keys,
+and the state k7s comes back to: hidden sections, hidden row states, the last
+namespace per context (used without `-n`).
 
 The defaults are [`internal/config/default.yaml`](internal/config/default.yaml),
 compiled into k7s. Change a default there, not in Go. On the first start k7s
@@ -239,8 +241,8 @@ added, because an older k7s would otherwise drop the new key when saving.
 
 ```
 cmd/                       CLI: k7s [-n] [-l] [--once] [--config]
-internal/config/           the YAML config: colors, hidden sections and states,
-  default.yaml             last namespaces; the defaults (compiled in)
+internal/config/           the YAML config: section order, commands, colors, hidden
+  default.yaml             sections and states, last namespaces; the defaults (compiled in)
 internal/kube/             cluster access: clients, contexts, a generic watch,
                            exec, port-forward, events, value formatting
 internal/resources/        the contract every kind implements

@@ -160,6 +160,25 @@ func TestPageKeysAreUnique(t *testing.T) {
 	}
 }
 
+func TestSectionsFollowResourceOrder(t *testing.T) {
+	cfg := config.Default()
+	var names []string
+	for _, k := range ordered(cfg, registry()) {
+		names = append(names, k.Name())
+	}
+	if got := strings.Join(names, " "); got != strings.Join(cfg.ResourceOrder, " ") {
+		t.Errorf("default order %q, want %q", got, cfg.ResourceOrder)
+	}
+	cfg.ResourceOrder = []string{"pods", "gitops"}
+	names = nil
+	for _, k := range ordered(cfg, registry()) {
+		names = append(names, k.Name())
+	}
+	if got := strings.Join(names, " "); got != "pods gitops deployments replicasets claims volumes secrets" {
+		t.Errorf("pods and gitops on top: %q", got)
+	}
+}
+
 func TestCommandsComeFromTheConfig(t *testing.T) {
 	pods := podKind{rows: []resources.Row{{Key: "ns/a", Ref: resources.Ref{Kind: "Pod", Namespace: "ns", Name: "a"}}}}
 	m := &model{kinds: []resources.Resource{pods}}
