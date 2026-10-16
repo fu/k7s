@@ -19,16 +19,20 @@ const (
 	Modified EventType = "MODIFIED"
 	Deleted  EventType = "DELETED"
 	Warn     EventType = "WARNING"
+	Normal   EventType = "EVENT"
 )
 
-// Warning is a Kubernetes Warning event about a pod: failed probes, OOM
-// kills, scheduling and mount failures and the like.
-type Warning struct {
-	Namespace, Pod  string
+// KubeEvent is a Kubernetes Event about any object in the namespace: a
+// failed probe or OOM kill (Warning), a scaled ReplicaSet or pulled image
+// (Normal), …
+type KubeEvent struct {
+	Namespace       string
+	Kind, Name      string // the object it is about
+	Type            string // Normal or Warning
 	Reason, Message string
 	Count           int32
 	At              time.Time
-	Initial         bool // part of the initial list rather than a live change
+	Initial         bool // from before the watch started (Kubernetes keeps ~1h)
 }
 
 // Event is one pod change from the watch stream.
@@ -59,7 +63,7 @@ type Handlers struct {
 	Metrics func(Metrics)
 	Synced  func()
 	Error   func(error)
-	Warning func(Warning) // optional
+	Event   func(KubeEvent) // optional: all events of the namespace
 }
 
 // Source combines a pod informer (list+watch, like kubectl get -w) with a
@@ -109,8 +113,8 @@ func (s *Source) Start(ctx context.Context, h Handlers) error {
 		return err
 	}
 
-	if h.Warning != nil {
-		if err := s.watchWarnings(ctx, h.Warning); err != nil {
+	if h.Event != nil {
+		if err := s.watchEvents(ctx, h.Event); err != nil {
 			return err
 		}
 	}
@@ -125,20 +129,16 @@ func (s *Source) Start(ctx context.Context, h Handlers) error {
 	return nil
 }
 
-// watchWarnings watches Warning events for pods (like "kubectl events
-// --types=Warning -w"). It is best effort: without RBAC it stays silent.
-func (s *Source) watchWarnings(ctx context.Context, emit func(Warning)) error {
-	factory := informers.NewSharedInformerFactoryWithOptions(s.client.Kube, 0,
-		informers.WithNamespace(s.ns),
-		informers.WithTweakListOptions(func(o *metav1.ListOptions) {
-			o.FieldSelector = "involvedObject.kind=Pod,type=Warning"
-		}),
-	)
+// watchEvents watches all events of the namespace (like "kubectl events
+// -w"), including the ones Kubernetes still keeps from before. It is best
+// effort: without RBAC it stays silent.
+func (s *Source) watchEvents(ctx context.Context, emit func(KubeEvent)) error {
+	factory := informers.NewSharedInformerFactoryWithOptions(s.client.Kube, 0, informers.WithNamespace(s.ns))
 	inf := factory.Core().V1().Events().Informer()
 	_, err := inf.AddEventHandler(cache.ResourceEventHandlerDetailedFuncs{
 		AddFunc: func(obj any, initial bool) {
 			if e, ok := obj.(*corev1.Event); ok {
-				emit(toWarning(e, initial))
+				emit(toKubeEvent(e, initial))
 			}
 		},
 		UpdateFunc: func(oldObj, obj any) {
@@ -146,7 +146,7 @@ func (s *Source) watchWarnings(ctx context.Context, emit func(Warning)) error {
 			o, ok1 := oldObj.(*corev1.Event)
 			e, ok2 := obj.(*corev1.Event)
 			if ok1 && ok2 && eventCount(e) > eventCount(o) {
-				emit(toWarning(e, false))
+				emit(toKubeEvent(e, false))
 			}
 		},
 	})
@@ -164,7 +164,7 @@ func eventCount(e *corev1.Event) int32 {
 	return e.Count
 }
 
-func toWarning(e *corev1.Event, initial bool) Warning {
+func toKubeEvent(e *corev1.Event, initial bool) KubeEvent {
 	at := e.LastTimestamp.Time
 	if e.Series != nil && !e.Series.LastObservedTime.IsZero() {
 		at = e.Series.LastObservedTime.Time
@@ -175,9 +175,11 @@ func toWarning(e *corev1.Event, initial bool) Warning {
 	if at.IsZero() {
 		at = e.CreationTimestamp.Time
 	}
-	return Warning{
+	return KubeEvent{
 		Namespace: e.InvolvedObject.Namespace,
-		Pod:       e.InvolvedObject.Name,
+		Kind:      e.InvolvedObject.Kind,
+		Name:      e.InvolvedObject.Name,
+		Type:      e.Type,
 		Reason:    e.Reason,
 		Message:   firstLine(e.Message),
 		Count:     max(1, eventCount(e)),

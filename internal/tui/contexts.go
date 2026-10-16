@@ -32,7 +32,7 @@ func (m *model) contextsKey(msg tea.KeyMsg) tea.Cmd {
 	n := len(cs.items)
 	switch msg.String() {
 	case "esc":
-		return m.returnToView()
+		m.screen = screenMain
 	case "up", "k":
 		cs.cursor = clampCursor(cs.cursor, -1, n)
 	case "down", "j":
@@ -50,19 +50,20 @@ func (m *model) contextsKey(msg tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		name := cs.items[cs.cursor].Name
-		if name != m.info.Context {
-			c, err := kube.ForContext(m.flags, name)
-			if err != nil {
-				m.setNotice("context " + name + ": " + err.Error())
-				return nil
-			}
-			// Switch to the context and its default namespace.
-			m.client = c
-			m.info.Context, m.info.Server = c.Context, c.Server
-			m.info.Namespace, m.info.AllNamespaces = c.Namespace, false
-			m.startPods()
+		m.screen = screenMain
+		if name == m.info.Context {
+			return nil
 		}
-		return m.returnToView()
+		c, err := kube.ForContext(m.flags, name)
+		if err != nil {
+			m.setNotice("context " + name + ": " + err.Error())
+			return nil
+		}
+		// Switch to the context and its default namespace.
+		m.client = c
+		m.info.Context, m.info.Server, m.info.Namespace = c.Context, c.Server, c.Namespace
+		m.scopeChanged()
+		return m.startGitOps()
 	}
 	return nil
 }

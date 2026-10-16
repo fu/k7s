@@ -21,6 +21,7 @@ type Row struct {
 	Type            string // shortened, e.g. "tls", "helm release"
 	Keys            int
 	Created         time.Time
+	Version         string // resourceVersion: changes whenever the data changes
 }
 
 func (r Row) Key() string { return r.Namespace + "/" + r.Name }
@@ -59,7 +60,7 @@ func Watch(ctx context.Context, c *kube.Client, ns, selector string, h Handlers)
 		}
 		if s, ok := obj.(*corev1.Secret); ok {
 			h.Row(Row{Namespace: s.Namespace, Name: s.Name, Type: ShortType(string(s.Type)),
-				Keys: len(s.Data), Created: s.CreationTimestamp.Time}, deleted)
+				Keys: len(s.Data), Created: s.CreationTimestamp.Time, Version: s.ResourceVersion}, deleted)
 		}
 	}
 	_, err := inf.AddEventHandler(cache.ResourceEventHandlerFuncs{

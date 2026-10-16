@@ -10,7 +10,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/fu/k7s/internal/pods"
 )
@@ -18,7 +17,7 @@ import (
 const (
 	flashFor    = 3 * time.Second // how long a changed cell stays highlighted
 	keepDeleted = 8 * time.Second // how long a deleted pod lingers (struck through)
-	maxEvents   = 500
+	maxEvents   = 1000
 )
 
 // Pod source messages carry the generation of the source that sent them, so
@@ -39,9 +38,9 @@ type (
 		gen int
 		err error
 	}
-	warningMsg struct {
+	kubeEventMsg struct {
 		gen int
-		w   pods.Warning
+		e   pods.KubeEvent
 	}
 )
 
@@ -49,7 +48,6 @@ type column int
 
 const (
 	colNum column = iota
-	colNS
 	colName
 	colReady
 	colStatus
@@ -64,7 +62,7 @@ const (
 	numCols
 )
 
-var colTitles = [numCols]string{"#", "NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "CPU", "%CPU/R", "%CPU/L", "MEM", "%MEM/R", "%MEM/L", "AGE"}
+var colTitles = [numCols]string{"#", "NAME", "READY", "STATUS", "RESTARTS", "CPU", "%CPU/R", "%CPU/L", "MEM", "%MEM/R", "%MEM/L", "AGE"}
 
 var rightAligned = [numCols]bool{colNum: true, colCPU: true, colCPUR: true, colCPUL: true, colMem: true, colMemR: true, colMemL: true}
 
@@ -83,10 +81,13 @@ type rowState struct {
 	deletedAt time.Time
 }
 
+// eventLine is one change-log entry: a pod change (row set), or a line about
+// another object (name set, e.g. "secret/web-tls", "deployment/web").
 type eventLine struct {
 	at     time.Time
 	kind   pods.EventType
 	row    pods.Row
+	name   string
 	detail string
 }
 
@@ -97,25 +98,22 @@ type podsState struct {
 	rows           map[string]*rowState
 	usage          map[string]pods.Usage
 	containerUsage map[string]map[string]pods.Usage
-	order          []string // sorted by namespace/name
-	selected       string
-	cursor, offset int
+	order          []string // sorted by name
 
-	events      []eventLine
-	changesBack int // how many changes the pane is scrolled back from the newest
+	// The change log of the namespace: pods, secrets and Kubernetes events.
+	events []eventLine
+	// Events from before the pod list arrived wait for it, so the filter
+	// can tell which ones are about listed objects.
+	pending []pods.KubeEvent
 
-	jumpBuf string // digits typed to jump to a pod number
-	jumpAt  time.Time
-
-	filterWarnings bool // with -l, only show warnings for pods in the table
-	synced         bool
-	metricsAt      time.Time
-	metricsErr     error
-	watchErr       error
-	watchErrAt     time.Time
+	synced     bool
+	metricsAt  time.Time
+	metricsErr error
+	watchErr   error
+	watchErrAt time.Time
 }
 
-// startPods (re)starts the watch for the current namespace.
+// startPods (re)starts the pod watch (and the namespace's event watch).
 func (m *model) startPods() {
 	p := &m.pods
 	if p.cancel != nil {
@@ -129,21 +127,15 @@ func (m *model) startPods() {
 		rows:           map[string]*rowState{},
 		usage:          map[string]pods.Usage{},
 		containerUsage: map[string]map[string]pods.Usage{},
-		filterWarnings: m.info.Selector != "",
-	}
-
-	ns := m.info.Namespace
-	if m.info.AllNamespaces {
-		ns = metav1.NamespaceAll
 	}
 	send := m.send
-	src := pods.NewSource(m.client, ns, m.info.Selector, m.info.Refresh)
+	src := pods.NewSource(m.client, m.info.Namespace, m.info.Selector, m.info.Refresh)
 	err := src.Start(ctx, pods.Handlers{
 		Pod:     func(e pods.Event) { send(podMsg{gen, e}) },
 		Metrics: func(mm pods.Metrics) { send(metricsMsg{gen, mm}) },
 		Synced:  func() { send(syncedMsg{gen}) },
 		Error:   func(err error) { send(watchErrMsg{gen, err}) },
-		Warning: func(w pods.Warning) { send(warningMsg{gen, w}) },
+		Event:   func(e pods.KubeEvent) { send(kubeEventMsg{gen, e}) },
 	})
 	if err != nil {
 		p.watchErr, p.watchErrAt = err, time.Now()
@@ -165,19 +157,27 @@ func (m *model) podsMsg(msg tea.Msg) {
 		if msg.gen == p.gen && !p.synced {
 			p.synced = true
 			p.logInitialProblems()
+			for _, e := range p.pending {
+				m.applyKubeEvent(e)
+			}
+			p.pending = nil
 		}
 	case watchErrMsg:
 		if msg.gen == p.gen {
 			p.watchErr, p.watchErrAt = msg.err, time.Now()
 		}
-	case warningMsg:
+	case kubeEventMsg:
 		if msg.gen == p.gen {
-			p.applyWarning(msg.w)
+			if !p.synced {
+				p.pending = append(p.pending, msg.e)
+			} else {
+				m.applyKubeEvent(msg.e)
+			}
 		}
 	}
 }
 
-// stateKind marks change-log lines describing a pod that was already
+// stateKind marks change-log lines describing something that was already
 // unhealthy when the watch started (there was no change to log for it).
 const stateKind pods.EventType = "STATE"
 
@@ -206,17 +206,57 @@ func (p *podsState) logInitialProblems() {
 	}
 }
 
-const jumpWindow = 1500 * time.Millisecond
-
-// jump moves to the pod whose number is being typed; digits typed within
-// jumpWindow of each other form one number.
-func (p *podsState) jump(digit string) {
-	if n := typeNumber(&p.jumpBuf, &p.jumpAt, digit); n >= 1 && n <= len(p.order) {
-		p.cursor, p.selected = n-1, p.order[n-1]
+// applyKubeEvent adds a Kubernetes event to the change log. With a filter,
+// only events about listed objects count: listed pods and secrets, and the
+// workloads (and ReplicaSets) of listed pods.
+func (m *model) applyKubeEvent(e pods.KubeEvent) {
+	if e.Reason == "BackOff" {
+		return // already visible as restarts / CrashLoopBackOff / ImagePullBackOff
 	}
+	if m.info.Selector != "" && !m.eventAboutListed(e) {
+		return
+	}
+	kind := pods.Normal
+	if e.Type == "Warning" {
+		kind = pods.Warn
+	}
+	line := eventLine{at: e.At, kind: kind, name: strings.ToLower(e.Kind) + "/" + e.Name}
+	if e.Kind == "Pod" {
+		line.name = e.Name
+	}
+	line.detail = e.Reason + ": " + e.Message
+	if e.Count > 1 {
+		line.detail += fmt.Sprintf(" (×%d)", e.Count)
+	}
+	m.pods.logEvent(line)
 }
 
-// typeNumber adds a typed digit to buf and returns the number typed so far.
+func (m *model) eventAboutListed(e pods.KubeEvent) bool {
+	key := e.Namespace + "/" + e.Name
+	switch e.Kind {
+	case "Pod":
+		_, ok := m.pods.rows[key]
+		return ok
+	case "Secret":
+		_, ok := m.secrets.rows[key]
+		return ok
+	}
+	for _, rs := range m.pods.rows {
+		r := rs.row
+		if e.Kind == r.WorkloadKind && e.Name == r.WorkloadName {
+			return true
+		}
+		if e.Kind == "ReplicaSet" && r.WorkloadKind == "Deployment" && strings.HasPrefix(e.Name, r.WorkloadName+"-") {
+			return true
+		}
+	}
+	return false
+}
+
+const jumpWindow = 1500 * time.Millisecond
+
+// typeNumber adds a typed digit to buf and returns the number typed so far;
+// digits typed within jumpWindow of each other form one number.
 func typeNumber(buf *string, at *time.Time, digit string) int {
 	if time.Since(*at) > jumpWindow {
 		*buf = ""
@@ -239,64 +279,6 @@ func jumpOr(buf string, at time.Time, commands string) string {
 		return "go to #[" + buf + "]"
 	}
 	return commands
-}
-
-// scrollChanges moves the change log by lines; positive = older. The pane
-// clamps the upper end, since only it knows how entries wrap.
-func (p *podsState) scrollChanges(delta int) {
-	p.changesBack = max(0, p.changesBack+delta)
-}
-
-func (m *model) podsKey(msg tea.KeyMsg) tea.Cmd {
-	p := &m.pods
-	page := m.podsLayout().tableRows
-	key := msg.String()
-	if isDigit(key) {
-		p.jump(key)
-		return nil
-	}
-	switch key {
-	case "q":
-		p.scrollChanges(1)
-	case "a":
-		p.scrollChanges(-1)
-	case "esc":
-		return tea.Quit
-	case "up", "k":
-		p.move(-1)
-	case "down", "j":
-		p.move(1)
-	case "pgup":
-		p.move(-page)
-	case "pgdown":
-		p.move(page)
-	case "home":
-		p.move(-len(p.order))
-	case "end", "G":
-		p.move(len(p.order))
-	case "l":
-		return m.openContainers(forLogs)
-	case "h":
-		return m.openContainers(forShell)
-	case "w":
-		return m.toggleForward()
-	}
-	return nil
-}
-
-func (p *podsState) move(delta int) {
-	if len(p.order) == 0 {
-		return
-	}
-	p.cursor = clampCursor(p.cursor, delta, len(p.order))
-	p.selected = p.order[p.cursor]
-}
-
-func (p *podsState) selectedRow() *rowState {
-	if len(p.order) == 0 {
-		return nil
-	}
-	return p.rows[p.selected]
 }
 
 // ---- state updates -------------------------------------------------------
@@ -393,39 +375,16 @@ func trend(oldS, newS string, oldV, newV int64) int {
 	}
 }
 
+// logEvent adds to the change log, kept in time order (events from before
+// the watch started carry their own, older timestamps).
 func (p *podsState) logEvent(e eventLine) {
 	p.events = append(p.events, e)
-	// Warnings from the initial list carry their own (older) timestamps.
 	if n := len(p.events); n > 1 && p.events[n-2].at.After(e.at) {
 		sort.SliceStable(p.events, func(i, j int) bool { return p.events[i].at.Before(p.events[j].at) })
 	}
 	if len(p.events) > maxEvents {
 		p.events = p.events[len(p.events)-maxEvents:]
 	}
-	// Keep a scrolled-back pane looking at the same changes.
-	if p.changesBack > 0 {
-		p.changesBack++
-	}
-}
-
-func (p *podsState) applyWarning(w pods.Warning) {
-	if w.Reason == "BackOff" {
-		return // already visible as restarts / CrashLoopBackOff / ImagePullBackOff
-	}
-	if w.Initial && time.Since(w.At) > 15*time.Minute {
-		return
-	}
-	row := pods.Row{Namespace: w.Namespace, Name: w.Pod}
-	if rs, ok := p.rows[row.Key()]; ok {
-		row = rs.row
-	} else if p.filterWarnings {
-		return
-	}
-	detail := w.Reason + ": " + w.Message
-	if w.Count > 1 {
-		detail += fmt.Sprintf(" (×%d)", w.Count)
-	}
-	p.logEvent(eventLine{at: w.At, kind: pods.Warn, row: row, detail: detail})
 }
 
 func (p *podsState) purgeDeleted() {
@@ -447,35 +406,12 @@ func (p *podsState) resort() {
 		p.order = append(p.order, k)
 	}
 	sort.Strings(p.order)
-
-	p.cursor = 0
-	for i, k := range p.order {
-		if k == p.selected {
-			p.cursor = i
-		}
-	}
-	if len(p.order) > 0 {
-		p.selected = p.order[p.cursor]
-	}
 }
 
 // ---- rendering -----------------------------------------------------------
 
-type podsLayout struct {
-	tableRows  int
-	eventLines int
-}
-
-func (m *model) podsLayout() podsLayout {
-	l := podsLayout{eventLines: max(3, min(10, m.height/4))}
-	// status line + blank + column titles + events rule + events + footer
-	l.tableRows = max(1, m.height-3-1-l.eventLines-1)
-	return l
-}
-
 // podLines renders the pod table: its header and one line per pod (in
-// order), the one with key selected highlighted. The pods screen and the
-// overview both use it.
+// order), the one with key selected highlighted.
 func (m *model) podLines(selected string) (string, []string) {
 	p := &m.pods
 	now := time.Now()
@@ -507,43 +443,17 @@ func (m *model) podLines(selected string) (string, []string) {
 	return renderCells(pick(hdr), colWidths, right, false, m.width), lines
 }
 
-func (m *model) podsView() string {
-	p := &m.pods
-	l := m.podsLayout()
-	p.offset = scrollOffset(p.cursor, p.offset, l.tableRows, len(p.order))
-	header, lines := m.podLines(p.selected)
-
-	var b strings.Builder
-	b.WriteString(m.statusLine())
-	b.WriteString("\n\n")
-	b.WriteString(header)
-	b.WriteByte('\n')
-	for i := 0; i < l.tableRows; i++ {
-		if idx := p.offset + i; idx < len(lines) {
-			b.WriteString(lines[idx])
-		} else if i == 0 {
-			b.WriteString(stDim.Render(m.emptyMessage()))
-		}
-		b.WriteByte('\n')
-	}
-
-	b.WriteString(m.eventsView(l.eventLines))
-	b.WriteString(m.footer(jumpOr(p.jumpBuf, p.jumpAt, "[l]ogs  s[h]ell  for[w]ard  [q/a] changes  "+m.scopeHint()+"  [esc] quit")))
-	return b.String()
-}
-
 func (m *model) emptyMessage() string {
 	if !m.pods.synced {
 		return "  waiting for pod list…"
 	}
-	return "  no pods found"
+	return "  no pods"
 }
 
 func (m *model) rowCells(rs *rowState, num int, now time.Time) [numCols]cell {
 	r := rs.row
 	var c [numCols]cell
 	c[colNum] = cell{text: fmt.Sprint(num), style: stDim}
-	c[colNS] = cell{text: r.Namespace}
 	c[colName] = cell{text: r.Name, middle: true}
 	for _, local := range m.forwardsOf(r.Key()) {
 		c[colName].text += fmt.Sprintf(" ⇄:%d", local)
@@ -597,8 +507,8 @@ func (m *model) fitColumns(rows [][numCols]cell) ([]column, [numCols]int) {
 		}
 	}
 	var shown [numCols]bool
-	for c := column(0); c < numCols; c++ {
-		shown[c] = c != colNS || m.info.AllNamespaces
+	for c := range shown {
+		shown[c] = true
 	}
 	total := func() int {
 		t := 0
@@ -635,17 +545,9 @@ func (m *model) fitColumns(rows [][numCols]cell) ([]column, [numCols]int) {
 	return cols, widths
 }
 
-func (m *model) nsLabel() string {
-	if m.info.AllNamespaces {
-		return "all"
-	}
-	return m.info.Namespace
-}
-
-func (m *model) statusLine() string {
-	p := &m.pods
-	var healthy, progressing, failing int
-	for _, rs := range p.rows {
+// podCounts counts live pods by health, for the status line.
+func (m *model) podCounts() (healthy, progressing, failing int) {
+	for _, rs := range m.pods.rows {
 		if !rs.deletedAt.IsZero() {
 			continue
 		}
@@ -658,42 +560,7 @@ func (m *model) statusLine() string {
 			failing++
 		}
 	}
-
-	parts := []string{
-		stBadge.Render("k7s"),
-		"ctx " + stCyan.Render(m.info.Context),
-		"ns " + stCyan.Render(m.nsLabel()),
-	}
-	if m.info.Selector != "" {
-		parts = append(parts, m.filterLabel())
-	}
-	parts = append(parts, fmt.Sprintf("pods %d %s %s %s", len(p.rows),
-		stGreen.Render(fmt.Sprintf("●%d", healthy)),
-		stAmber.Render(fmt.Sprintf("●%d", progressing)),
-		stRed.Render(fmt.Sprintf("●%d", failing))))
-	if n := len(m.forwards); n > 0 {
-		parts = append(parts, stCyan.Render(fmt.Sprintf("⇄ %d forwarded", n)))
-	}
-
-	switch {
-	case p.watchErr != nil && time.Since(p.watchErrAt) < 30*time.Second:
-		parts = append(parts, stRed.Render("watch error: "+p.watchErr.Error()))
-	case p.synced:
-		parts = append(parts, m.pulse()+" "+stCyan.Render("watching"))
-	default:
-		parts = append(parts, stYellow.Render("○ syncing"))
-	}
-	if p.metricsErr != nil {
-		parts = append(parts, stRed.Render("metrics unavailable"))
-	}
-	return clip(strings.Join(parts, stDim.Render(" │ ")), m.width)
-}
-
-func (m *model) eventsView(n int) string {
-	p := &m.pods
-	return m.changesPane(n, len(p.events), &p.changesBack,
-		func(i int) string { return m.eventLineView(p.events[i]) },
-		"no changes yet — pod adds, deletes, status/restart changes and warnings appear here")
+	return
 }
 
 // changesPane renders a scrollable change log of total entries in n lines,
@@ -755,19 +622,25 @@ func (m *model) eventLineView(e eventLine) string {
 		kind = stRed.Render(kind)
 	case pods.Warn:
 		kind = stRed.Bold(true).Render(kind)
+	case pods.Normal:
+		kind = stDim.Render(kind)
 	case stateKind, forwardKind:
 		kind = stCyan.Render(kind)
 	default:
 		kind = stYellow.Render(kind)
 	}
-	name := e.row.Name
-	if m.info.AllNamespaces {
-		name = e.row.Key()
+	ts := stDim.Render(e.at.Format("15:04:05"))
+	switch {
+	case e.kind == pods.Warn:
+		return fmt.Sprintf("%s %s %s  %s", ts, kind, e.name, stYellow.Render(e.detail))
+	case e.name != "":
+		s := fmt.Sprintf("%s %s %s", ts, kind, e.name)
+		if e.detail != "" {
+			s += stDim.Render("  " + e.detail)
+		}
+		return s
 	}
-	if e.kind == pods.Warn {
-		return fmt.Sprintf("%s %s %s  %s", stDim.Render(e.at.Format("15:04:05")), kind, name, stYellow.Render(e.detail))
-	}
-	s := fmt.Sprintf("%s %s %s  %s %s", stDim.Render(e.at.Format("15:04:05")), kind, name,
+	s := fmt.Sprintf("%s %s %s  %s %s", ts, kind, e.row.Name,
 		statusStyle(e.row).Render(e.row.Status), e.row.ReadyString())
 	if e.detail != "" {
 		s += stDim.Render("  " + e.detail)

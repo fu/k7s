@@ -15,10 +15,9 @@ import (
 	"github.com/fu/k7s/internal/pods"
 )
 
-// The GitOps screen sits next to pods under context › namespace. GitOps is
-// cluster-wide (Argo CD keeps its Applications in its own namespace), so it
-// lists every app and highlights the ones deploying into the namespace you
-// came from.
+// GitOps is a section of the main page: the Argo CD / Flux apps responsible
+// for what is listed. The watch itself covers all apps of the cluster, so
+// parents (app of apps) are known too.
 
 type (
 	gitopsDetectedMsg struct {
@@ -59,28 +58,15 @@ type gitopsState struct {
 	detected bool
 	engine   gitops.Engine
 
-	rows           map[string]*appRow
-	order          []string
-	selected       string
-	cursor, offset int
-	jumpBuf        string
-	jumpAt         time.Time
-
-	events      []appEvent
-	changesBack int
-	synced      bool
-	err         error
-	errAt       time.Time
+	rows   map[string]*appRow
+	order  []string
+	events []appEvent
+	synced bool
+	err    error
+	errAt  time.Time
 }
 
-// openGitOps shows the gitops view.
-func (m *model) openGitOps() tea.Cmd {
-	m.screen, m.lastView = screenGitOps, screenGitOps
-	return m.startGitOps()
-}
-
-// startGitOps detects the engine of the current context and starts
-// watching; the gitops view and the overview both use it.
+// startGitOps detects the engine of the current context and starts watching.
 func (m *model) startGitOps() tea.Cmd {
 	g := &m.gitops
 	if g.cancel != nil {
@@ -90,14 +76,6 @@ func (m *model) startGitOps() tea.Cmd {
 	*g = gitopsState{gen: gen, rows: map[string]*appRow{}}
 	client := m.client
 	return func() tea.Msg { return gitopsDetectedMsg{gen, gitops.Detect(client)} }
-}
-
-func (m *model) closeGitOps() {
-	g := &m.gitops
-	if g.cancel != nil {
-		g.cancel()
-	}
-	g.gen++
 }
 
 // apps returns the current apps by key, and which app deploys which.
@@ -214,9 +192,6 @@ func (g *gitopsState) log(e appEvent) {
 	if len(g.events) > maxEvents {
 		g.events = g.events[len(g.events)-maxEvents:]
 	}
-	if g.changesBack > 0 { // keep a scrolled-up pane looking at the same lines
-		g.changesBack += 1 + len(e.items)
-	}
 }
 
 func (g *gitopsState) resort() {
@@ -229,57 +204,6 @@ func (g *gitopsState) resort() {
 		g.order = append(g.order, k)
 	}
 	sort.Strings(g.order)
-	g.cursor = 0
-	for i, k := range g.order {
-		if k == g.selected {
-			g.cursor = i
-		}
-	}
-	if len(g.order) > 0 {
-		g.selected = g.order[g.cursor]
-	}
-}
-
-func (g *gitopsState) move(delta int) {
-	if len(g.order) == 0 {
-		return
-	}
-	g.cursor = clampCursor(g.cursor, delta, len(g.order))
-	g.selected = g.order[g.cursor]
-}
-
-func (m *model) gitopsKey(msg tea.KeyMsg) tea.Cmd {
-	g := &m.gitops
-	page := m.podsLayout().tableRows
-	key := msg.String()
-	if isDigit(key) {
-		if n := typeNumber(&g.jumpBuf, &g.jumpAt, key); n >= 1 && n <= len(g.order) {
-			g.cursor, g.selected = n-1, g.order[n-1]
-		}
-		return nil
-	}
-	switch key {
-	case "esc":
-		m.closeGitOps()
-		m.screen, m.lastView = screenPods, screenPods
-	case "up", "k":
-		g.move(-1)
-	case "down", "j":
-		g.move(1)
-	case "pgup":
-		g.move(-page)
-	case "pgdown":
-		g.move(page)
-	case "home":
-		g.move(-len(g.order))
-	case "end", "G":
-		g.move(len(g.order))
-	case "q":
-		g.changesBack++ // the pane clamps it to what can be scrolled
-	case "a":
-		g.changesBack = max(0, g.changesBack-1)
-	}
-	return nil
 }
 
 // ---- rendering -----------------------------------------------------------
@@ -296,37 +220,9 @@ func lightStyle(l gitops.Light) lipgloss.Style {
 	return stDim
 }
 
-func (m *model) gitopsView() string {
-	g := &m.gitops
-	l := m.podsLayout()
-	var b strings.Builder
-	b.WriteString(m.gitopsStatusLine())
-	b.WriteString("\n\n")
-
-	switch {
-	case !g.detected:
-		b.WriteString(stDim.Render("  looking for Argo CD or Flux…"))
-		b.WriteString(strings.Repeat("\n", m.height-3))
-		return b.String() + m.footer("[esc] back")
-	case g.engine == gitops.None:
-		b.WriteString(stDim.Render("  no Argo CD or Flux found on this cluster"))
-		b.WriteString(strings.Repeat("\n", m.height-3))
-		return b.String() + m.footer("[esc] back")
-	}
-
-	b.WriteString(m.gitopsTable(g.order).render(g.cursor, &g.offset, l.tableRows+1, m.width))
-
-	b.WriteString(m.changesPane(l.eventLines, len(g.events), &g.changesBack,
-		func(i int) string { return m.appEventView(g.events[i]) },
-		"no changes yet — sync, health and revision changes appear here"))
-	b.WriteString(m.footer(jumpOr(g.jumpBuf, g.jumpAt, "[q/a] changes  [esc] back")))
-	return b.String()
-}
-
-// gitopsTable is the apps table for the given app keys; the gitops screen
-// and the overview both use it. PARENT shows the app that deploys this one,
-// colored by the worst light up that chain, so a green app under a broken
-// parent does not look fine.
+// gitopsTable is the apps table for the given app keys. PARENT shows the app
+// that deploys this one, colored by the worst light up that chain, so a
+// green app under a broken parent does not look fine.
 func (m *model) gitopsTable(keys []string) table {
 	g := &m.gitops
 	apps, parents := g.apps()
@@ -343,7 +239,6 @@ func (m *model) gitopsTable(keys []string) table {
 		t.flex = 7
 	}
 	now := time.Now()
-	here := !m.info.AllNamespaces
 	for i, k := range keys {
 		row := g.rows[k]
 		a := row.app
@@ -355,10 +250,6 @@ func (m *model) gitopsTable(keys []string) table {
 		if now.Sub(row.healthChanged) < flashFor {
 			health.style = stFlash
 		}
-		name, dest := cell{text: a.Name, middle: true}, cell{text: a.DestNS, style: stDim}
-		if here && a.DestNS == m.info.Namespace {
-			name.style, dest.style = stCyan.Bold(true), stCyan
-		}
 		synced := cell{text: "-", style: stDim}
 		if !a.SyncedAt.IsZero() {
 			synced = cell{text: pods.Age(a.SyncedAt), style: stDim}
@@ -369,7 +260,10 @@ func (m *model) gitopsTable(keys []string) table {
 		}
 		cells := []cell{
 			{text: fmt.Sprint(i + 1), style: stDim},
-			sync, health, name, dest, parent,
+			sync, health,
+			{text: a.Name, middle: true},
+			{text: a.DestNS, style: stDim},
+			parent,
 			{text: a.Source, style: stDim, middle: true},
 			{text: a.Revision, style: stDim},
 			synced,
@@ -385,43 +279,6 @@ func (m *model) gitopsTable(keys []string) table {
 		t.rows = append(t.rows, cells)
 	}
 	return t
-}
-
-func (m *model) gitopsStatusLine() string {
-	g := &m.gitops
-	var green, amber, red int
-	for _, row := range g.rows {
-		switch row.app.Overall() {
-		case gitops.Green:
-			green++
-		case gitops.Amber:
-			amber++
-		case gitops.Red:
-			red++
-		}
-	}
-	engine := string(g.engine)
-	if engine == "" {
-		engine = "…"
-	}
-	parts := []string{
-		stBadge.Render("k7s"),
-		"ctx " + stCyan.Render(m.info.Context),
-		"gitops " + stCyan.Render(engine),
-		fmt.Sprintf("apps %d %s %s %s", len(g.rows),
-			stGreen.Render(fmt.Sprintf("●%d", green)),
-			stAmber.Render(fmt.Sprintf("●%d", amber)),
-			stRed.Render(fmt.Sprintf("●%d", red))),
-	}
-	switch {
-	case g.err != nil && time.Since(g.errAt) < 30*time.Second:
-		parts = append(parts, stRed.Render("watch error: "+g.err.Error()))
-	case g.synced:
-		parts = append(parts, m.pulse()+" "+stCyan.Render("watching"))
-	case g.engine != gitops.None:
-		parts = append(parts, stYellow.Render("○ syncing"))
-	}
-	return clip(strings.Join(parts, stDim.Render(" │ ")), m.width)
 }
 
 func (m *model) appEventView(e appEvent) string {

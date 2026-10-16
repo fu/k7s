@@ -8,7 +8,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/fu/k7s/internal/resources"
 )
@@ -35,11 +34,7 @@ func (m *model) openFilter() tea.Cmd {
 	f := &m.filter
 	*f = filterState{gen: f.gen + 1}
 	m.screen = screenFilter
-	ns := m.info.Namespace
-	if m.info.AllNamespaces {
-		ns = metav1.NamespaceAll
-	}
-	gen, client, ctx := f.gen, m.client, m.ctx
+	gen, client, ctx, ns := f.gen, m.client, m.ctx, m.info.Namespace
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
@@ -67,7 +62,7 @@ func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "esc":
 		f.gen++
-		return m.returnToView()
+		m.screen = screenMain
 	case "up", "k":
 		f.cursor = clampCursor(f.cursor, -1, n)
 	case "down", "j":
@@ -86,9 +81,11 @@ func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
 			sel = f.cands[f.cursor-1].Selector
 		}
 		f.gen++
-		m.info.Selector = sel
-		m.startPods()
-		return m.returnToView()
+		m.screen = screenMain
+		if sel != m.info.Selector {
+			m.info.Selector = sel
+			m.scopeChanged()
+		}
 	}
 	return nil
 }
@@ -141,7 +138,7 @@ func (m *model) filterView() string {
 	case f.loaded:
 		state = stDim.Render(fmt.Sprintf("%d label selectors", len(f.cands)))
 	}
-	head := m.crumbs(m.info.Context, stYellow.Render("filter"), "ns "+stCyan.Render(m.nsLabel()), state)
+	head := m.crumbs(m.info.Context, stYellow.Render("filter"), "ns "+stCyan.Render(m.info.Namespace), state)
 	body := t.render(f.cursor, &f.offset, m.height-3, m.width)
 	return head + "\n\n" + body + m.footer("[enter] apply  [esc] back")
 }

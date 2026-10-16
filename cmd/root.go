@@ -7,13 +7,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
@@ -29,64 +27,39 @@ var configFlags = genericclioptions.NewConfigFlags(true)
 var version = "dev"
 
 type options struct {
-	allNamespaces bool
-	selector      string
-	refresh       time.Duration
-	once          bool
+	selector string
+	refresh  time.Duration
+	once     bool
 }
 
 func newRootCmd() *cobra.Command {
 	o := &options{}
-	run := func(cmd *cobra.Command, args []string) error {
-		view := ""
-		if len(args) == 1 {
-			view = args[0]
-		}
-		return runView(cmd.Context(), o, view)
-	}
-	views := strings.Join(tui.ViewNames(), ", ")
 	root := &cobra.Command{
-		Use:   "k7s [view]",
-		Short: "k7s - live kubectl views: more than kubectl, less than k9s",
-		Long: `k7s shows kubectl-style views that keep updating in place.
+		Use:   "k7s [-n namespace] [-l selector]",
+		Short: "k7s - one namespace, everything in it, live",
+		Long: `k7s shows one namespace on one page, updating in place: the gitops apps
+that deploy it, its pods (with CPU/MEM) and secrets, and a change log of
+everything that happens there — including the events from before you started.
 
-Views: ` + views + ` (default: pods). Inside k7s they are menus
-you switch between with their first letter.
+Pick the namespace with -n (default: the context's namespace) and narrow it
+to one app with -l. Inside k7s, c / n / f switch context, namespace and
+filter; p / s / g show or hide the pods, secrets and gitops sections.
 
 Examples:
-  k7s                          # pods of the current namespace
-  k7s all -n shop              # everything in one namespace on one page
-  k7s all -n shop -l app=web   # same, for one app
-  k7s secrets -n my-namespace
-  k7s get pods -A -l app=web   # "get" works too, like kubectl
-  k7s po --once                # print one pod table and exit`,
-		Args:         cobra.MaximumNArgs(1),
+  k7s                       # the current namespace
+  k7s -n shop -l app=web    # one app in namespace shop
+  k7s -n shop --once        # print the pod table once and exit`,
+		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		Version:      version,
-		RunE:         run,
-	}
-	configFlags.AddFlags(root.PersistentFlags())
-	pf := root.PersistentFlags()
-	pf.BoolVarP(&o.allNamespaces, "all-namespaces", "A", false, "Show all namespaces")
-	pf.StringVarP(&o.selector, "selector", "l", "", "Label selector for pods (e.g. app=web)")
-	pf.DurationVar(&o.refresh, "refresh", 5*time.Second, "Metrics refresh interval")
-	pf.BoolVar(&o.once, "once", false, "Print a single pod table and exit (default when stdout is not a terminal)")
-
-	root.AddCommand(&cobra.Command{
-		Use:   "get [view]",
-		Short: "Same as k7s [view], for kubectl muscle memory",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			// kubectl's "get all" means a fixed list of built-in kinds;
-			// ours is different, so it only exists as "k7s all".
-			if len(args) == 1 {
-				if v, _ := tui.ResolveView(args[0]); v == "overview" {
-					return fmt.Errorf(`use "k7s all -n <namespace> [-l <selector>]" for the overview of one app`)
-				}
-			}
-			return run(cmd, args)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return run(cmd.Context(), o)
 		},
-	})
+	}
+	configFlags.AddFlags(root.Flags())
+	root.Flags().StringVarP(&o.selector, "selector", "l", "", "Label selector to narrow everything to one app (e.g. app=web)")
+	root.Flags().DurationVar(&o.refresh, "refresh", 5*time.Second, "Metrics refresh interval")
+	root.Flags().BoolVar(&o.once, "once", false, "Print the pod table once and exit (default when stdout is not a terminal)")
 	return root
 }
 
@@ -102,24 +75,11 @@ func Execute() {
 	}
 }
 
-func runView(ctx context.Context, o *options, arg string) error {
+func run(ctx context.Context, o *options) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	o.refresh = max(o.refresh, time.Second)
-
-	// Known views open directly; anything else shows pods with a hint.
-	view, notice := "pods", ""
-	if arg != "" {
-		if v, ok := tui.ResolveView(arg); ok {
-			view = v
-		} else {
-			notice = fmt.Sprintf("%q is not a k7s view (yet), showing pods. Views: %s", arg, strings.Join(tui.ViewNames(), ", "))
-		}
-	}
-	if view == "overview" && o.allNamespaces {
-		return fmt.Errorf("the overview shows one namespace: use -n <namespace> instead of -A")
-	}
 
 	client, err := kube.New(configFlags)
 	if err != nil {
@@ -134,23 +94,14 @@ func runView(ctx context.Context, o *options, arg string) error {
 	}
 
 	if o.once || !term.IsTerminal(int(os.Stdout.Fd())) {
-		if view != "pods" {
-			return fmt.Errorf("--once only prints pods")
-		}
-		ns := client.Namespace
-		if o.allNamespaces {
-			ns = metav1.NamespaceAll
-		}
-		return pods.PrintSnapshot(ctx, pods.NewSource(client, ns, o.selector, o.refresh), os.Stdout, o.allNamespaces)
+		src := pods.NewSource(client, client.Namespace, o.selector, o.refresh)
+		return pods.PrintSnapshot(ctx, src, os.Stdout, false)
 	}
 	return tui.Run(ctx, configFlags, client, tui.Info{
-		Context:       client.Context,
-		Server:        client.Server,
-		Namespace:     client.Namespace,
-		AllNamespaces: o.allNamespaces,
-		Selector:      o.selector,
-		Refresh:       o.refresh,
-		Start:         view,
-		Notice:        notice,
+		Context:   client.Context,
+		Server:    client.Server,
+		Namespace: client.Namespace,
+		Selector:  o.selector,
+		Refresh:   o.refresh,
 	})
 }

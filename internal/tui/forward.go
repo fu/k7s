@@ -39,19 +39,6 @@ type portsState struct {
 	cursor, offset int
 }
 
-// toggleForward acts on the pod selected on the pods screen.
-func (m *model) toggleForward() tea.Cmd {
-	rs := m.pods.selectedRow()
-	if rs == nil {
-		return nil
-	}
-	if !rs.deletedAt.IsZero() && len(m.forwardsOf(rs.row.Key())) == 0 {
-		m.setNotice("pod " + rs.row.Name + " is gone")
-		return nil
-	}
-	return m.toggleForwardFor(rs.row)
-}
-
 // toggleForwardFor stops a pod's forwards, or starts one.
 func (m *model) toggleForwardFor(pod pods.Row) tea.Cmd {
 	stopped := false

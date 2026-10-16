@@ -68,12 +68,9 @@ func (m *model) namespacesMsg(msg tea.Msg) tea.Cmd {
 		}
 		if !ns.placed {
 			ns.placed = true
-			ns.cursor = 0 // "all namespaces"
-			if !m.info.AllNamespaces {
-				for i, it := range ns.items {
-					if it.Name == m.info.Namespace {
-						ns.cursor = i + 1
-					}
+			for i, it := range ns.items {
+				if it.Name == m.info.Namespace {
+					ns.cursor = i
 				}
 			}
 		}
@@ -89,11 +86,11 @@ func (m *model) namespacesMsg(msg tea.Msg) tea.Cmd {
 
 func (m *model) namespacesKey(msg tea.KeyMsg) tea.Cmd {
 	ns := &m.namespaces
-	n := len(ns.items) + 1 // + "all namespaces"
+	n := len(ns.items)
 	switch msg.String() {
 	case "esc":
 		m.leave()
-		return m.returnToView()
+		m.screen = screenMain
 	case "up", "k":
 		ns.cursor = clampCursor(ns.cursor, -1, n)
 	case "down", "j":
@@ -107,15 +104,12 @@ func (m *model) namespacesKey(msg tea.KeyMsg) tea.Cmd {
 	case "end", "G":
 		ns.cursor = n - 1
 	case "enter":
-		if ns.cursor == 0 {
-			m.info.AllNamespaces = true
-		} else {
-			m.info.AllNamespaces = false
-			m.info.Namespace = ns.items[ns.cursor-1].Name
+		if ns.cursor < n {
+			m.info.Namespace = ns.items[ns.cursor].Name
+			m.scopeChanged()
 		}
 		m.leave()
-		m.startPods()
-		return m.returnToView()
+		m.screen = screenMain
 	}
 	return nil
 }
@@ -128,29 +122,8 @@ func (m *model) namespacesView() string {
 		flex:    1,
 	}
 
-	var all namespaces.Summary
-	all.HasPods, all.HasMetrics = true, true
 	for _, it := range ns.items {
-		all.Pods += it.Pods
-		all.Healthy += it.Healthy
-		all.Progressing += it.Progressing
-		all.Failing += it.Failing
-		all.CPU += it.CPU
-		all.Mem += it.Mem
-		all.HasPods = all.HasPods && it.HasPods
-		all.HasMetrics = all.HasMetrics && it.HasMetrics
-	}
-	if len(ns.items) == 0 {
-		all.HasPods, all.HasMetrics = false, false
-	}
-
-	allRow := m.nsRow(all, m.info.AllNamespaces)
-	allRow[1] = cell{text: "all namespaces", style: stCyan}
-	allRow[2] = cell{}
-	allRow[9] = cell{}
-	t.rows = append(t.rows, allRow)
-	for _, it := range ns.items {
-		t.rows = append(t.rows, m.nsRow(it, !m.info.AllNamespaces && it.Name == m.info.Namespace))
+		t.rows = append(t.rows, m.nsRow(it, it.Name == m.info.Namespace))
 	}
 
 	state := stDim.Render("loading…")

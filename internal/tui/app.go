@@ -1,7 +1,8 @@
-// Package tui renders k7s's live views. Top-level menus (pods, namespaces,
-// contexts, gitops, secrets) are global keys shown in the navigation bar;
-// each screen adds its own commands to the right. Esc goes back, and quits
-// on the pods screen.
+// Package tui renders k7s: one main page for a namespace (and filter) with
+// its resources in sections and a change log underneath. The navigation bar
+// holds the scope menus (contexts, namespaces, filter) and the section
+// toggles (pods, secrets, gitops); sub screens (logs, shell, secret, pickers)
+// return to the main page with esc.
 package tui
 
 import (
@@ -19,112 +20,66 @@ import (
 
 // Info describes what is being watched.
 type Info struct {
-	Context       string
-	Server        string
-	Namespace     string
-	AllNamespaces bool
-	Selector      string
-	Refresh       time.Duration
-	Start         string // view to open first (a menu name)
-	Notice        string // shown in the navigation bar at start
-}
-
-// ViewNames lists the top-level views in menu order.
-func ViewNames() []string {
-	names := make([]string, len(menus))
-	for i, mu := range menus {
-		names[i] = mu.name
-	}
-	return names
-}
-
-// viewAliases accepts kubectl-style singular and short names.
-var viewAliases = map[string]string{
-	"pod": "pods", "po": "pods",
-	"secret":    "secrets",
-	"namespace": "namespaces", "ns": "namespaces",
-	"context": "contexts", "ctx": "contexts",
-	"all":  "overview",
-	"argo": "gitops", "argocd": "gitops", "flux": "gitops",
-	"application": "gitops", "applications": "gitops", "app": "gitops",
-	"kustomization": "gitops", "kustomizations": "gitops", "helmrelease": "gitops", "helmreleases": "gitops",
-}
-
-// ResolveView maps a command-line argument to a view name.
-func ResolveView(arg string) (string, bool) {
-	arg = strings.ToLower(arg)
-	if a, ok := viewAliases[arg]; ok {
-		arg = a
-	}
-	for _, mu := range menus {
-		if mu.name == arg {
-			return arg, true
-		}
-	}
-	return "", false
+	Context   string
+	Server    string
+	Namespace string
+	Selector  string
+	Refresh   time.Duration
+	Notice    string // shown in the navigation bar at start
 }
 
 type screen int
 
 const (
-	screenPods screen = iota
+	screenMain screen = iota
 	screenContainers
 	screenLogs
 	screenNamespaces
 	screenContexts
-	screenGitOps
-	screenSecrets
+	screenFilter
 	screenSecret // one secret's keys
 	screenPorts  // pick a port to forward
-	screenOverview
-	screenFilter // pick the label selector (a scope, like namespace)
 )
 
-// menus are the top-level views, always shown in the navigation bar. The
-// first letter of each name is its key.
-var menus = []struct {
+// scopes are the menus that change what is shown: each opens a picker.
+var scopes = []struct {
 	name   string
 	screen screen
 }{
 	{"contexts", screenContexts},
 	{"namespaces", screenNamespaces},
 	{"filter", screenFilter},
-	{"overview", screenOverview},
-	{"pods", screenPods},
-	{"secrets", screenSecrets},
-	{"gitops", screenGitOps},
 }
 
 type tickMsg time.Time
 
 type model struct {
 	ctx      context.Context
-	startCmd tea.Cmd                        // opens the start view
+	startCmd tea.Cmd
 	flags    *genericclioptions.ConfigFlags // to build clients for other contexts
 	client   *kube.Client                   // the context in use
 	send     func(tea.Msg)
 	info     Info
 
 	screen        screen
-	lastView      screen // the last menu view: where n/c return after a switch
 	width, height int
 	notice        string
 	noticeAt      time.Time
 
+	main       mainState
 	pods       podsState
+	secrets    secretsState
+	gitops     gitopsState
 	containers containersState
 	logs       logsState
 	namespaces nsState
 	contexts   ctxState
-	gitops     gitopsState
-	secrets    secretsState
-	ports      portsState
-	overview   overviewState
 	filter     filterState
+	ports      portsState
 	forwards   map[string]*forward // active port-forwards by pod/port
 }
 
-// Run starts the live pod view and blocks until the user quits.
+// Run shows the main page and blocks until the user quits.
 func Run(ctx context.Context, flags *genericclioptions.ConfigFlags, client *kube.Client, info Info) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -133,18 +88,8 @@ func Run(ctx context.Context, flags *genericclioptions.ConfigFlags, client *kube
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
 	m.send = p.Send
 	m.startPods()
-	switch info.Start {
-	case "secrets":
-		m.startCmd = m.openSecrets()
-	case "gitops":
-		m.startCmd = m.openGitOps()
-	case "namespaces":
-		m.startCmd = m.openNamespaces()
-	case "contexts":
-		m.startCmd = m.openContexts()
-	case "overview":
-		m.startCmd = m.openOverview()
-	}
+	m.startSecrets()
+	m.startCmd = m.startGitOps()
 	if info.Notice != "" {
 		m.setNotice(info.Notice)
 		m.noticeAt = time.Now().Add(4 * time.Second) // a little longer at start
@@ -189,43 +134,35 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.namespacesKey(msg)
 		case screenContexts:
 			return m, m.contextsKey(msg)
-		case screenGitOps:
-			return m, m.gitopsKey(msg)
-		case screenSecrets:
-			return m, m.secretsKey(msg)
+		case screenFilter:
+			return m, m.filterKey(msg)
 		case screenSecret:
 			return m, m.secretKey(msg)
 		case screenPorts:
 			return m, m.portsKey(msg)
-		case screenOverview:
-			return m, m.overviewKey(msg)
-		case screenFilter:
-			return m, m.filterKey(msg)
 		default:
-			return m, m.podsKey(msg)
+			return m, m.mainKey(msg)
 		}
 	case tickMsg:
 		m.pods.purgeDeleted()
-		if m.screen == screenGitOps || m.screen == screenOverview {
-			m.gitops.resort() // drops deleted apps after a while
-		}
+		m.gitops.resort() // drops deleted apps after a while
 		return m, tick()
-	case gitopsDetectedMsg, appMsg, appsSyncedMsg, appsErrMsg:
-		m.gitopsMsg(msg)
 	case pulseMsg:
 		return m, pulseTick()
+	case podMsg, metricsMsg, syncedMsg, watchErrMsg, kubeEventMsg:
+		m.podsMsg(msg)
+	case secretMsg, secretsSyncedMsg, secretsErrMsg, secretDataMsg:
+		m.secretsMsg(msg)
+	case gitopsDetectedMsg, appMsg, appsSyncedMsg, appsErrMsg:
+		m.gitopsMsg(msg)
 	case shellDoneMsg:
 		if msg.err != nil {
 			m.setNotice("shell: " + msg.err.Error())
 		}
-	case podMsg, metricsMsg, syncedMsg, watchErrMsg, warningMsg:
-		m.podsMsg(msg)
 	case logLineMsg, logEndMsg:
 		m.logsMsg(msg)
 	case nsLoadedMsg, nsRefreshMsg:
 		return m, m.namespacesMsg(msg)
-	case secretMsg, secretsSyncedMsg, secretsErrMsg, secretDataMsg:
-		m.secretsMsg(msg)
 	case fwdReadyMsg, fwdEndMsg:
 		m.forwardMsg(msg)
 	case selCandidatesMsg:
@@ -234,61 +171,40 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// globalKey handles the menu keys and N, which work on every screen.
+// globalKey handles the scope menus (c, n, f) and the section toggles
+// (p, s, g), which work on every screen.
 func (m *model) globalKey(key string) (tea.Cmd, bool) {
 	switch key {
-	case "p":
-		m.leave()
-		m.screen, m.lastView = screenPods, screenPods
-	case "n":
-		if m.screen != screenNamespaces {
-			m.leave()
-			return m.openNamespaces(), true
-		}
 	case "c":
 		if m.screen != screenContexts {
 			m.leave()
 			return m.openContexts(), true
 		}
-	case "g":
-		if m.screen != screenGitOps {
+	case "n":
+		if m.screen != screenNamespaces {
 			m.leave()
-			return m.openGitOps(), true
-		}
-	case "s":
-		if m.screen != screenSecrets {
-			m.leave()
-			return m.openSecrets(), true
-		}
-	case "o":
-		if m.screen != screenOverview {
-			m.leave()
-			return m.openOverview(), true
+			return m.openNamespaces(), true
 		}
 	case "f":
 		if m.screen != screenFilter {
 			m.leave()
 			return m.openFilter(), true
 		}
-	case "N":
-		if m.lastView == screenOverview && !m.info.AllNamespaces {
-			m.setNotice("the overview shows one namespace; N works in the other views")
-			return nil, true
+	case "p", "s", "g":
+		for _, s := range sections {
+			if s[:1] == key {
+				m.leave()
+				m.toggleSection(s)
+				m.screen = screenMain
+			}
 		}
-		m.info.AllNamespaces = !m.info.AllNamespaces
-		if m.info.AllNamespaces {
-			m.setNotice("all namespaces")
-		} else {
-			m.setNotice("namespace " + m.info.Namespace)
-		}
-		return m.scopeChanged(), true
 	default:
 		return nil, false
 	}
 	return nil, true
 }
 
-// leave stops whatever the current screen streams before switching away.
+// leave stops what the current sub screen streams before switching away.
 func (m *model) leave() {
 	switch m.screen {
 	case screenLogs:
@@ -296,47 +212,21 @@ func (m *model) leave() {
 			m.logs.cancel()
 		}
 		m.logs.gen++
-	case screenGitOps:
-		m.closeGitOps()
-	case screenSecrets, screenSecret:
-		m.closeSecrets()
 	case screenNamespaces:
 		m.namespaces.gen++ // stops its refresh
 	case screenFilter:
 		m.filter.gen++
-	}
-	// The overview keeps watching while its logs/secret/pickers are open.
-	if m.lastView == screenOverview {
-		m.closeOverview()
+	case screenSecret:
+		m.secrets.data, m.secrets.openKey, m.secrets.reveal = nil, "", false
 	}
 }
 
-// scopeChanged restarts the watches after the context or namespace changed.
-func (m *model) scopeChanged() tea.Cmd {
+// scopeChanged restarts the namespaced watches after the namespace or
+// filter changed (gitops is cluster-wide and keeps running).
+func (m *model) scopeChanged() {
 	m.startPods()
-	switch m.screen {
-	case screenSecrets, screenSecret:
-		return m.openSecrets()
-	case screenOverview:
-		return m.openOverview()
-	case screenFilter:
-		return m.openFilter()
-	}
-	return nil // gitops is cluster-wide: the namespace does not matter
-}
-
-// returnToView goes back to the last resource view after a switch.
-func (m *model) returnToView() tea.Cmd {
-	switch m.lastView {
-	case screenGitOps:
-		return m.openGitOps()
-	case screenSecrets:
-		return m.openSecrets()
-	case screenOverview:
-		return m.openOverview()
-	}
-	m.screen = screenPods
-	return nil
+	m.startSecrets()
+	m.main.changesBack, m.main.offset = 0, 0
 }
 
 func (m *model) View() string {
@@ -352,45 +242,39 @@ func (m *model) View() string {
 		return m.namespacesView()
 	case screenContexts:
 		return m.contextsView()
-	case screenGitOps:
-		return m.gitopsView()
-	case screenSecrets:
-		return m.secretsView()
+	case screenFilter:
+		return m.filterView()
 	case screenSecret:
 		return m.secretView()
 	case screenPorts:
 		return m.portsView()
-	case screenOverview:
-		return m.overviewView()
-	case screenFilter:
-		return m.filterView()
 	}
-	return m.podsView()
+	return m.mainView()
 }
 
 func (m *model) setNotice(s string) {
 	m.notice, m.noticeAt = s, time.Now()
 }
 
-// footer is the navigation bar: the global menus on a discreet background
-// (the active one highlighted), then this screen's commands — or a recent
-// notice such as an error.
+// footer is the navigation bar: the scope menus (highlighted while their
+// picker is open), then the section toggles (highlighted while shown), then
+// this screen's commands — or a recent notice such as an error. Each menu is
+// its name with the key letter (always the first) in cyan.
 func (m *model) footer(sub string) string {
-	// Sub screens (logs, pickers, an opened secret) belong to the menu view
-	// they were opened from.
-	active := m.screen
-	switch active {
-	case screenContainers, screenLogs, screenPorts, screenSecret:
-		active = m.lastView
-	}
-	// Each menu is its name with the key letter (always the first) in cyan.
-	var b strings.Builder
-	for _, mu := range menus {
+	item := func(name string, on bool) string {
 		st, key := stMenu, stMenu.Foreground(lipgloss.Color("6")).Bold(true)
-		if mu.screen == active {
+		if on {
 			st, key = stMenuActive, stMenuActive.Underline(true)
 		}
-		b.WriteString(st.Render(" ") + key.Render(mu.name[:1]) + st.Render(mu.name[1:]+" ") + " ")
+		return st.Render(" ") + key.Render(name[:1]) + st.Render(name[1:]+" ") + " "
+	}
+	var b strings.Builder
+	for _, sc := range scopes {
+		b.WriteString(item(sc.name, m.screen == sc.screen))
+	}
+	b.WriteString(stDim.Render("│ "))
+	for _, s := range sections {
+		b.WriteString(item(s, m.shown(s)))
 	}
 	right := hints(sub)
 	if m.notice != "" && time.Since(m.noticeAt) < 6*time.Second {
@@ -412,14 +296,6 @@ func hints(s string) string {
 		b.WriteString(stDim.Render(s[:i]) + stCyan.Bold(true).Render(s[i+1:j]))
 		s = s[j+1:]
 	}
-}
-
-// scopeHint describes what N switches to.
-func (m *model) scopeHint() string {
-	if m.info.AllNamespaces {
-		return "[N]amespace " + m.info.Namespace
-	}
-	return "all [N]amespaces"
 }
 
 // crumbs renders the top line of the sub screens for context ctxName. Put
@@ -487,7 +363,7 @@ func renderCells(cells []cell, widths []int, right []bool, selected bool, width 
 	return line
 }
 
-// table is a simple selectable list used by the container and namespace screens.
+// table is a selectable table: the sections of the main page and the pickers.
 type table struct {
 	headers []string
 	right   []bool
@@ -512,8 +388,7 @@ func (t table) render(cursor int, offset *int, height, width int) string {
 	return b.String()
 }
 
-// lines renders the header and every row (row cursor highlighted). Views
-// share it so the overview can stack the very same rows.
+// lines renders the header and every row (row cursor highlighted).
 func (t table) lines(cursor, width int) (string, []string) {
 	widths := make([]int, len(t.headers))
 	for i, h := range t.headers {

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -61,29 +62,49 @@ func TestUnhealthyPodsAreExplainedAtStartup(t *testing.T) {
 	}
 }
 
-func TestBackOffWarningsAreSkipped(t *testing.T) {
-	p := podsState{rows: map[string]*rowState{}}
-	p.applyWarning(pods.Warning{Namespace: "ns", Pod: "a", Reason: "BackOff", Message: "Back-off restarting", At: time.Now()})
-	p.applyWarning(pods.Warning{Namespace: "ns", Pod: "a", Reason: "Unhealthy", Message: "Liveness probe failed", Count: 3, At: time.Now()})
-	if len(p.events) != 1 || p.events[0].detail != "Unhealthy: Liveness probe failed (×3)" {
-		t.Fatalf("unexpected events: %+v", p.events)
+func TestKubeEventsInChangeLog(t *testing.T) {
+	m := &model{}
+	m.pods.rows = map[string]*rowState{}
+	m.applyKubeEvent(pods.KubeEvent{Namespace: "ns", Kind: "Pod", Name: "a", Type: "Warning", Reason: "BackOff", Message: "Back-off restarting", At: time.Now()})
+	m.applyKubeEvent(pods.KubeEvent{Namespace: "ns", Kind: "Pod", Name: "a", Type: "Warning", Reason: "Unhealthy", Message: "Liveness probe failed", Count: 3, At: time.Now()})
+	m.applyKubeEvent(pods.KubeEvent{Namespace: "ns", Kind: "Deployment", Name: "web", Type: "Normal", Reason: "ScalingReplicaSet", Message: "Scaled up to 2", At: time.Now().Add(-time.Hour), Initial: true})
+	ev := m.pods.events
+	if len(ev) != 2 {
+		t.Fatalf("BackOff is skipped, the rest kept: %+v", ev)
+	}
+	// Kept in time order: the hour-old event (history) comes first.
+	if ev[0].kind != pods.Normal || ev[0].name != "deployment/web" || ev[1].detail != "Unhealthy: Liveness probe failed (×3)" {
+		t.Errorf("unexpected events: %+v", ev)
 	}
 }
 
-func TestJumpToPodNumber(t *testing.T) {
-	p := podsState{order: make([]string, 15)}
-	for i := range p.order {
-		p.order[i] = string(rune('a' + i))
+func TestFilterKeepsOnlyEventsAboutListedObjects(t *testing.T) {
+	m := &model{info: Info{Selector: "app=web"}}
+	m.pods.rows = map[string]*rowState{"ns/web-7d4-x": {row: pods.Row{Namespace: "ns", Name: "web-7d4-x", WorkloadKind: "Deployment", WorkloadName: "web"}}}
+	for _, e := range []pods.KubeEvent{
+		{Namespace: "ns", Kind: "Pod", Name: "web-7d4-x", Reason: "Pulled"},
+		{Namespace: "ns", Kind: "ReplicaSet", Name: "web-7d4", Reason: "SuccessfulCreate"},
+		{Namespace: "ns", Kind: "Deployment", Name: "web", Reason: "ScalingReplicaSet"},
+		{Namespace: "ns", Kind: "Deployment", Name: "db", Reason: "ScalingReplicaSet"},
+		{Namespace: "ns", Kind: "Pod", Name: "db-0", Reason: "Pulled"},
+	} {
+		m.applyKubeEvent(e)
 	}
-	p.jump("1")
-	p.jump("2")
-	if p.cursor != 11 {
-		t.Fatalf("typing 12 should select row 12, cursor=%d", p.cursor)
+	if len(m.pods.events) != 3 {
+		t.Errorf("want the 3 events about web, got %d: %+v", len(m.pods.events), m.pods.events)
 	}
-	p.jumpAt = time.Now().Add(-2 * jumpWindow) // pause: next digit starts a new number
-	p.jump("3")
-	if p.cursor != 2 {
-		t.Fatalf("after a pause, 3 should select row 3, cursor=%d", p.cursor)
+}
+
+func TestJumpNumbers(t *testing.T) {
+	var buf string
+	var at time.Time
+	typeNumber(&buf, &at, "1")
+	if n := typeNumber(&buf, &at, "2"); n != 12 {
+		t.Fatalf("typing 1 then 2 should give 12, got %d", n)
+	}
+	at = time.Now().Add(-2 * jumpWindow) // pause: next digit starts a new number
+	if n := typeNumber(&buf, &at, "3"); n != 3 {
+		t.Fatalf("after a pause, 3 should give 3, got %d", n)
 	}
 }
 
@@ -117,27 +138,28 @@ func TestTallEntryCanBeScrolledToItsFirstLine(t *testing.T) {
 }
 
 func TestMenuKeysAreUniqueFirstLetters(t *testing.T) {
+	names := slices.Clone(sections)
+	for _, sc := range scopes {
+		names = append(names, sc.name)
+	}
 	seen := map[byte]string{}
-	for _, mu := range menus {
-		k := mu.name[0]
-		if other, dup := seen[k]; dup {
-			t.Errorf("menus %q and %q share key %q", other, mu.name, k)
+	for _, name := range names {
+		if other, dup := seen[name[0]]; dup {
+			t.Errorf("menus %q and %q share key %q", other, name, name[0])
 		}
-		seen[k] = mu.name
+		seen[name[0]] = name
 	}
 }
 
-func TestResolveView(t *testing.T) {
-	for arg, want := range map[string]string{
-		"pods": "pods", "po": "pods", "Secret": "secrets", "ns": "namespaces",
-		"ctx": "contexts", "argocd": "gitops", "helmreleases": "gitops", "all": "overview",
-	} {
-		if got, ok := ResolveView(arg); !ok || got != want {
-			t.Errorf("ResolveView(%q) = %q, %v; want %q", arg, got, ok, want)
-		}
+func TestSectionToggles(t *testing.T) {
+	m := &model{}
+	m.globalKey("s")
+	if m.shown("secrets") || !m.shown("pods") {
+		t.Fatal("s hides only the secrets section")
 	}
-	if _, ok := ResolveView("deployments"); ok {
-		t.Error("deployments is not a view yet")
+	m.globalKey("s")
+	if !m.shown("secrets") {
+		t.Fatal("s again shows it again")
 	}
 }
 
@@ -166,17 +188,5 @@ func TestWrapBreaksLongValues(t *testing.T) {
 	}
 	if joined != long {
 		t.Error("wrapping changed the value")
-	}
-}
-
-func TestScrolledChangesStayPut(t *testing.T) {
-	p := podsState{rows: map[string]*rowState{}}
-	for i := 0; i < 20; i++ {
-		p.logEvent(eventLine{at: time.Now()})
-	}
-	p.scrollChanges(5)
-	p.logEvent(eventLine{at: time.Now()})
-	if p.changesBack != 6 {
-		t.Fatalf("a new change should keep the scrolled view in place, changesBack=%d", p.changesBack)
 	}
 }

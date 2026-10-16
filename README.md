@@ -1,10 +1,10 @@
 # k7s
 
-Live kubectl views: more than `kubectl`, less than `k9s`.
+One namespace, everything in it, live: more than `kubectl`, less than `k9s`.
 
-`k7s get pods` is `kubectl get pods -w` that updates **in place** instead of
-scrolling, with `kubectl top` metrics merged into each row and a change log
-underneath that shows only what actually changed.
+k7s shows a namespace on one page that updates in place: the GitOps apps that
+deploy it, its pods (with CPU/MEM) and secrets — and below them a change log
+of everything that happens there, including what happened before you started.
 
 Built on the same libraries as kubectl (`client-go`, `cli-runtime`, `cobra`),
 so `-n`, `--context`, `--kubeconfig`, `--as`, exec auth plugins (kubelogin) …
@@ -22,128 +22,114 @@ Or download a binary from the [releases](https://github.com/fu/k7s/releases).
 ## Usage
 
 ```bash
-k7s                                # pods of the current namespace
-k7s all -n shop                    # everything in one namespace on one page (overview)
-k7s all -n shop -l app=web         # same, for one app
-k7s secrets -n my-namespace        # start in another view: contexts, namespaces, filter, overview, pods, secrets, gitops
-k7s get pods -A -l app=web         # "get" works too; kubectl short names (po, ns, ctx …) as well
-k7s po -n my-namespace --once      # one pod table, kubectl-style (also used when piped)
-k7s --refresh 2s                   # metrics poll interval (default 5s)
+k7s                         # the current namespace
+k7s -n shop                 # namespace shop
+k7s -n shop -l app=web      # only one app in it
+k7s -n shop --once          # print the pod table once and exit (also when piped)
+k7s --refresh 2s            # metrics poll interval (default 5s)
 ```
 
-An unknown view (e.g. `k7s deployments`) opens pods with a notice listing the
-views that exist.
+There are no sub commands: you pick a namespace (and optionally a filter),
+and everything in it is shown.
 
-Columns: #, NAME, READY, STATUS (light), RESTARTS (with "x ago"), CPU, %CPU/R,
-%CPU/L, MEM, %MEM/R, %MEM/L, AGE. `/R` is usage as % of the pod's request,
-`/L` as % of its limit (`-` = none set). On narrow terminals names are
-shortened in the middle first, then the % columns go.
-
-Live view (pods are listed by name):
-
-- the cyan "watching" dot breathes once per metrics refresh and is brightest
-  the moment new CPU/MEM numbers arrive
-- pods are numbered (`#`) so you can jump to one and refer to it in a discussion
-- status lights: green running, amber starting/pending, red terminating/failing;
-  the change log says what the state is and why (pods already unhealthy at
-  start get a `STATE` line with status, restarts and last exit)
-- changed cells flash for 3s; CPU/MEM show ↑/↓ versus the previous poll
-- the change log explains container exits when they happen
-  (`exit OOMKilled(137) — out of memory, hit its memory limit`) and shows
-  Kubernetes Warning events for pods: failed probes, scheduling, mounts…
-- new pods are highlighted, deleted pods stay struck-through for 8s
-- bottom pane: `kubectl -w` style log, e.g.
-  `MODIFIED web-7d4b9c6f5-x2k8q  status CrashLoopBackOff → Running, restarts 142 → 143`
-
-### Navigation
-
-The bottom line is the navigation bar:
+## The page
 
 ```
- contexts  namespaces  filter  overview  pods  secrets  gitops   logs  shell  forward  [q/a] changes  all Namespaces  [esc] quit
+ k7s │ ctx dev │ ns shop │ filter app=web │ pods 3 ●3 ●0 ●0 │ secrets 2 │ gitops ● 1 apps │ ● watching
+
+gitops (1)
+ #  SYNC  HEALTH  NAME  DEST  PARENT      SOURCE              REV      SYNCED
+ 1  ●     ●       web   shop  ● main-app  deploy/apps/web     f91dfdc  2h
+
+pods (3)
+ #  NAME                   READY  STATUS  RESTARTS  CPU  %CPU/R  %CPU/L  MEM  %MEM/R  %MEM/L  AGE
+ 1  web-7d4b9c6f5-x2k8q    1/1    ●       0         3m  1%      -       248Mi 48%    8%      3h
+ …
+
+secrets (2)
+ #  NAME     TYPE    KEYS  AGE
+ …
+
+─ changes (42) ─────────────────────────────────────────────────────────────
+13:02:11 EVENT    deployment/web  ScalingReplicaSet: Scaled up replica set web-7d4b9c6f5 to 3
+13:02:15 MODIFIED web-7d4b9c6f5-x2k8q  Running 1/1  status ContainerCreating → Running
+ contexts  namespaces  filter │ gitops  pods  secrets   logs  shell  forward  [q/a] changes  [esc] quit
 ```
 
-On the left are the **menus**, always available as global keys — the first
-letter of each (shown in cyan) is its key: `c`ontexts, `n`amespaces,
-`f`ilter, `o`verview, `p`ods, `s`ecrets, `g`itops. The first three set the
-scope, the others are views. The active menu is highlighted. To the right are
-the current screen's commands, again with the key letter in cyan (`l`ogs,
-s`h`ell, for`w`ard, `r`eveal …; keys that are not letters are shown in front).
+**Sections** (in this order; each shows the same rows wherever it appears):
 
-- `c` / `n` / `f`: pick a context / namespace / filter; enter switches right
-  away and returns to the view you were on. k7s starts in the current kubectl
-  context, the namespace from `-n` (else the context's default) and the
-  filter from `-l`.
-- The **filter** is a label selector for all views. Its pane suggests the
-  selectors found in the namespace (from `app.kubernetes.io/instance`,
-  `app.kubernetes.io/name`, `app`, `k8s-app`, `release` …) with how many pods
-  and secrets each matches, plus "everything (no filter)".
-- `N`: toggle between the selected namespace and all namespaces (not in the
-  overview, which always shows one namespace).
-- `↑↓` move, `0-9` jump to a row `#`, `q`/`a` scroll the change log.
-- `esc` goes back; on the pods screen it quits.
+1. **gitops** — only the Argo CD / Flux apps responsible for what is listed:
+   those deploying a listed secret or the workload (Deployment,
+   StatefulSet, …) of a listed pod, read from Argo CD's managed resources /
+   Flux's inventory; without a filter, every app deploying into the
+   namespace. SYNC and HEALTH lights; PARENT is the app that deploys this
+   one (app of apps), colored by the worst light up that chain.
+2. **pods** — `#`, READY, a status light (green running, amber starting,
+   red failing/terminating), RESTARTS ("x ago"), CPU, MEM and their % of the
+   pod's request (`/R`) and limit (`/L`, `-` = none). CPU/MEM show ↑/↓ versus
+   the previous poll, changed cells flash, new pods are highlighted, deleted
+   ones stay struck through for 8s, port-forwarded pods show `⇄:<port>`.
+3. **secrets** — name, type, number of keys, age. Enter opens one: its keys
+   with the values masked; `r` reveals them. Values are only fetched for the
+   opened secret, never kept in the list.
 
-**Overview (`o`, or `k7s all`)** stacks the views of one namespace on one
-page — exactly the rows of their own screens — with one merged change log:
+The status line has one **gitops light**: the worst of the responsible apps
+and their parents, so green pods under a broken deployment chain do not
+look fine. The cyan "watching" dot breathes once per metrics refresh.
 
-1. **gitops**: only the apps responsible for what is listed: those deploying
-   a listed secret or the workload (Deployment, StatefulSet, …) of a listed
-   pod, read from Argo CD's managed resources / Flux's inventory. Without a
-   filter, every app deploying into the namespace.
-2. **pods**, then 3. **secrets**.
+**Change log** (`q`/`a` scroll it, line by line) — everything about what is
+shown, in time order:
 
-The header shows one gitops light: the worst of the responsible apps *and
-the apps that deploy them* (app of apps), so green pods under a broken
-deployment chain do not look fine. The filter (`f`) narrows everything to
-one app. Pod rows support logs, shell and forward; enter on a secret opens
-it. It never spans all namespaces. (`k7s get all` is refused on purpose:
-kubectl's `get all` means something else.)
+- pod adds/deletes and status, ready and restart changes; container exits are
+  explained (`exit OOMKilled(137) — out of memory, hit its memory limit`)
+- secrets added, deleted and updated
+- sync / health / revision changes of the responsible apps (with every
+  degraded or out-of-sync resource on its own line)
+- all Kubernetes events of the namespace — warnings (failed probes,
+  scheduling, mounts…) and normal ones (scaling, rollouts, pulls, kills)
+- at start: the events Kubernetes still keeps (about the last hour), so you
+  see what happened before — including pods that are already gone — and a
+  `STATE` line for everything already unhealthy
 
-**Secrets (`s`)** lists the secrets live: name, type, number of keys, age.
-Enter opens one and shows its keys with the values masked; `r` reveals them
-(and hides them again). Values are only fetched for the opened secret and are
-never kept in the list.
+With a filter, only events about listed objects (and their Deployments /
+ReplicaSets) are shown.
 
-**GitOps (`g`)** sits next to pods. It detects the engine and lists every
-Argo CD Application of the cluster with two lights — SYNC (green Synced, amber
-OutOfSync, red failed sync) and HEALTH (green Healthy, amber Progressing,
-red Degraded/Missing) — plus target namespace, PARENT (the app that deploys
-it, colored by the worst light up that chain), source, revision and last
-sync. Apps deploying into your namespace are highlighted. The change log
-explains apps that are not green (auto-sync off, failed sync message, which
-resources are degraded/out of sync) and shows sync/health/revision changes
-live.
+## Keys
 
-On Flux clusters the same view lists Kustomizations and HelmReleases (with a
-KIND column): SYNC is the `Ready` condition (green ready, red failed, amber
-reconciling/suspended), HEALTH is the `Healthy` condition for Kustomizations
-and the release/test result for HelmReleases. Failures are explained with
-Flux's own reason and message.
+The navigation bar shows the menus with their key letter in cyan:
 
-**Port-forwarding (`w` on a pod)** forwards a declared container port to
-localhost — the same port number when it is free, else any free port — like
-`kubectl port-forward`. Pods with several ports get a picker. Forwarded pods
-show `⇄:<local port>` next to their name and the change log records start and
-stop; `w` again stops it. All forwards end when k7s quits.
+| key | |
+|-----|---|
+| `c` / `n` / `f` | pick the **c**ontext / **n**amespace / **f**ilter; enter switches and returns |
+| `g` / `p` / `s` | show or hide the **g**itops / **p**ods / **s**ecrets section |
+| `↑↓`, `0-9` | move; jump to row `#` of the current section |
+| `l` / `h` / `w` | on a pod: **l**ogs, s**h**ell, for**w**ard a port (again: stop) |
+| `enter` | on a pod: logs; on a secret: open it |
+| `q` / `a` | scroll the change log up / down |
+| `esc` | back; on the main page: quit |
 
-`l` and `h` go straight to the container when a pod has only one; otherwise a
-container picker (type, state, restarts, CPU/MEM, image) comes first. Logs
-follow the last 500 lines like `kubectl logs -f --tail=500`. The shell uses
-client-go's exec (same as `kubectl exec -it`); type `exit` to come back. The
-namespace picker shows pods running/pending/failing plus CPU/MEM per namespace
-and refreshes while open.
+The **filter** pane suggests selectors from the app labels in the namespace
+(`app.kubernetes.io/instance`, `app.kubernetes.io/name`, `app`, `k8s-app`,
+`release` …) with how many pods and secrets each matches, plus "everything".
+The **namespace** pane shows pods running/pending/failing and CPU/MEM per
+namespace.
+
+Logs follow the last 500 lines like `kubectl logs -f --tail=500`; the shell
+uses client-go's exec (like `kubectl exec -it`, `bash` else `sh`), type
+`exit` to come back; port-forwarding works like `kubectl port-forward` (same
+local port when free). Pods with several containers or ports get a picker.
 
 ## Code layout
 
 ```
-cmd/                  CLI: k7s [view], k7s all, k7s get [view]
+cmd/                  CLI: k7s [-n] [-l]
 internal/kube         clients, contexts, exec (shell), port-forward
-internal/pods         pod rows, watch + metrics, logs, --once table
-internal/namespaces   namespace summaries
+internal/pods         pod rows, watch + metrics + events, logs, --once table
 internal/secrets      secret watch (values dropped) and on-demand values
-internal/gitops       Argo CD / Flux apps
+internal/gitops       Argo CD / Flux apps, what they manage, parents
+internal/namespaces   namespace summaries
 internal/resources    filter suggestions from app labels
-internal/tui          screens and navigation only
+internal/tui          the main page, its sections and sub screens
 ```
 
 ## Build

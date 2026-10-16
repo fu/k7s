@@ -35,19 +35,6 @@ func candidates(r pods.Row, p purpose) []pods.Container {
 	return out
 }
 
-// openContainers acts on the pod selected on the pods screen.
-func (m *model) openContainers(p purpose) tea.Cmd {
-	rs := m.pods.selectedRow()
-	if rs == nil {
-		return nil
-	}
-	if !rs.deletedAt.IsZero() {
-		m.setNotice("pod " + rs.row.Name + " is gone")
-		return nil
-	}
-	return m.openContainersFor(rs.row, p)
-}
-
 // openContainersFor goes straight to logs/shell for a single container,
 // otherwise via the container picker.
 func (m *model) openContainersFor(pod pods.Row, p purpose) tea.Cmd {
